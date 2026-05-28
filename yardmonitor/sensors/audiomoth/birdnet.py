@@ -33,10 +33,12 @@ class BirdNetAnalyzer:
             from birdnetlib.analyzer import Analyzer
             self._analyzer = Analyzer()
             logger.info("BirdNET-Analyzer loaded")
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                "birdnetlib is not installed.  Run: pip install birdnetlib"
-            )
+                f"birdnetlib failed to import ({exc}). "
+                "If it is installed, a dependency may be missing. "
+                "Run: pip install birdnetlib"
+            ) from exc
 
     def analyze(
         self,

@@ -39,11 +39,12 @@ class MegaDetector:
             cls = pw_detection.MegaDetectorV5B if self.version == "v5b" else pw_detection.MegaDetectorV5
             self._model = cls(device=self.device, pretrained=True)
             logger.info("Loaded MegaDetector %s on %s", self.version, self.device)
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                "PytorchWildlife is not installed. "
-                "Run: pip install PytorchWildlife"
-            )
+                f"PytorchWildlife failed to import ({exc}). "
+                "If it is installed, the error above likely indicates a missing "
+                "dependency (e.g. torch/CUDA). Run: pip install PytorchWildlife"
+            ) from exc
 
     def detect_batch(self, image_paths: list[Path]) -> dict[str, list[dict]]:
         """

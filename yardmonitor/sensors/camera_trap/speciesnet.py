@@ -69,7 +69,8 @@ class SpeciesNetClassifier:
             try:
                 import speciesnet  # noqa: F401
                 self._available = True
-            except ImportError:
+            except ImportError as exc:
+                logger.warning("speciesnet import failed (%s) — species classification disabled", exc)
                 self._available = False
         return self._available
 

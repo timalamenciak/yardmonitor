@@ -1,0 +1,26 @@
+[Unit]
+Description=YardMonitor Processing Server
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=timalamenciak
+Group=timalamenciak
+WorkingDirectory=/home/timalamenciak/repos/yardmonitor
+ExecStart=/home/timalamenciak/venv/wildlife/bin/python server.py
+Restart=on-failure
+RestartSec=10s
+
+# Keep logs readable in journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yardmonitor
+
+# Ensure the venv and CUDA runtime are visible
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/timalamenciak/venv/wildlife/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target

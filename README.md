@@ -59,6 +59,24 @@ Options:
 
 API documentation is auto-generated at `http://<server-ip>:8000/docs`.
 
+#### Running as a systemd service (recommended for DGX / always-on servers)
+
+A service unit is included at `deploy/yardmonitor.service`. Edit the `User`, `WorkingDirectory`, and `ExecStart` paths if your username or venv location differs, then install it:
+
+```bash
+sudo cp deploy/yardmonitor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yardmonitor
+```
+
+Useful commands:
+
+```bash
+sudo systemctl status yardmonitor      # check running state
+sudo systemctl restart yardmonitor     # restart after a code update
+journalctl -u yardmonitor -f           # live log tail
+```
+
 ---
 
 ### Client upload (run on your laptop when you plug in an SD card)
