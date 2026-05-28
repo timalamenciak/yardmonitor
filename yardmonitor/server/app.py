@@ -319,8 +319,9 @@ async def ui_dashboard(request: Request):
     stats = _db(request).get_dashboard_stats()
     jobs = _db(request).list_jobs(limit=5)
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
-        {"request": request, "stats": stats, "recent_jobs": jobs},
+        {"stats": stats, "recent_jobs": jobs},
     )
 
 
@@ -332,9 +333,9 @@ async def ui_deployments(
 ):
     deps = _db(request).list_deployments(sensor_type=sensor_type, status=status)
     return templates.TemplateResponse(
+        request,
         "deployments.html",
         {
-            "request": request,
             "deployments": deps,
             "filter_sensor": sensor_type or "",
             "filter_status": status or "",
@@ -351,9 +352,9 @@ async def ui_deployment_detail(dep_id: str, request: Request):
     media = _db(request).list_media(dep_id)
     jobs = [j for j in _db(request).list_jobs() if j["deployment_id"] == dep_id]
     return templates.TemplateResponse(
+        request,
         "deployment_detail.html",
         {
-            "request": request,
             "dep": dep,
             "stats": stats,
             "media": media,
@@ -391,9 +392,9 @@ async def ui_observations(
     deps = _db(request).list_deployments()
     pages = max(1, (total + per_page - 1) // per_page)
     return templates.TemplateResponse(
+        request,
         "observations.html",
         {
-            "request": request,
             "observations": rows,
             "total": total,
             "page": page,
@@ -417,13 +418,14 @@ async def ui_observations(
 async def ui_jobs(request: Request):
     jobs = _db(request).list_jobs()
     return templates.TemplateResponse(
-        "jobs.html", {"request": request, "jobs": jobs}
+        request, "jobs.html", {"jobs": jobs}
     )
 
 
 @app.get("/models", response_class=HTMLResponse)
 async def ui_models(request: Request):
     return templates.TemplateResponse(
+        request,
         "models.html",
-        {"request": request, "models": _models(request).all()},
+        {"models": _models(request).all()},
     )
