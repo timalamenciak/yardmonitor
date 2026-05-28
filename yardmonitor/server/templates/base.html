@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}YardMonitor{% endblock %}</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='server.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="/">
+      <span class="icon">🌿</span> YardMonitor
+    </a>
+    <div class="nav-links">
+      <a href="/"             {% if request.url.path == '/'             %}class="active"{% endif %}>Dashboard</a>
+      <a href="/deployments"  {% if '/deployments' in request.url.path  %}class="active"{% endif %}>Deployments</a>
+      <a href="/observations" {% if request.url.path == '/observations'  %}class="active"{% endif %}>Observations</a>
+      <a href="/jobs"         {% if request.url.path == '/jobs'          %}class="active"{% endif %}>Jobs</a>
+      <a href="/models"       {% if request.url.path == '/models'        %}class="active"{% endif %}>Models</a>
+    </div>
+    <a class="nav-api-link" href="/docs" target="_blank" rel="noopener">API docs ↗</a>
+  </div>
+</nav>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  YardMonitor — Ecological Monitoring Platform &nbsp;|&nbsp;
+  <a href="/docs" target="_blank" rel="noopener">API</a> &nbsp;|&nbsp;
+  <a href="/models">Models</a>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

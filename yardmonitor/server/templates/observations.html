@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Observations — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Observations</h1>
+  <span class="page-sub">{{ total }} results</span>
+</div>
+
+{# ── Filter form ───────────────────────────────────────────────────────── #}
+<form class="filter-bar" method="get" action="/observations">
+  <div class="filter-group">
+    <label class="filter-label">Species / common name</label>
+    <input class="filter-input" type="text" name="q"
+           placeholder="e.g. Vulpes vulpes or fox"
+           value="{{ filters.q }}" style="min-width:200px;">
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Sensor</label>
+    <select class="filter-select" name="sensor_type">
+      <option value="">All sensors</option>
+      <option value="camera_trap" {% if filters.sensor_type == 'camera_trap' %}selected{% endif %}>Camera Trap</option>
+      <option value="audiomoth"   {% if filters.sensor_type == 'audiomoth'   %}selected{% endif %}>AudioMoth</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Deployment</label>
+    <select class="filter-select" name="deployment_id">
+      <option value="">All deployments</option>
+      {% for dep in deployments %}
+        <option value="{{ dep.id }}"
+                {% if filters.deployment_id == dep.id %}selected{% endif %}>
+          {{ dep.location_name or dep.id }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Type</label>
+    <select class="filter-select" name="detection_type">
+      <option value="">All types</option>
+      <option value="animal"       {% if filters.detection_type == 'animal'       %}selected{% endif %}>Animal</option>
+      <option value="audio_species"{% if filters.detection_type == 'audio_species'%}selected{% endif %}>Audio species</option>
+      <option value="person"       {% if filters.detection_type == 'person'       %}selected{% endif %}>Person</option>
+      <option value="vehicle"      {% if filters.detection_type == 'vehicle'      %}selected{% endif %}>Vehicle</option>
+      <option value="blank"        {% if filters.detection_type == 'blank'        %}selected{% endif %}>Blank</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">From date</label>
+    <input class="filter-input" type="date" name="from_date" value="{{ filters.from_date }}" style="min-width:130px;">
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">To date</label>
+    <input class="filter-input" type="date" name="to_date" value="{{ filters.to_date }}" style="min-width:130px;">
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Min confidence %</label>
+    <input class="filter-input" type="number" name="min_confidence"
+           min="0" max="100" step="5"
+           value="{{ (filters.min_confidence * 100) | int if filters.min_confidence != '' else '' }}"
+           placeholder="0"
+           style="min-width:90px;">
+  </div>
+  <button type="submit" class="btn btn-primary" style="align-self:flex-end;">Search</button>
+  {% if filters.values() | select | list %}
+    <a href="/observations" class="btn btn-ghost" style="align-self:flex-end;">✕ Clear</a>
+  {% endif %}
+</form>
+
+{# ── Results ───────────────────────────────────────────────────────────── #}
+{% if observations %}
+
+  <div class="obs-grid">
+    {% for obs in observations %}
+    <div class="obs-card">
+      {# Thumbnail #}
+      {% if obs.sensor_type == 'camera_trap' %}
+        <a href="/media/{{ obs.deployment_id }}/{{ obs.filename }}" target="_blank" rel="noopener">
+          <img class="obs-thumb"
+               src="/thumb/{{ obs.deployment_id }}/{{ obs.filename }}"
+               loading="lazy"
+               alt="{{ obs.filename }}"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="obs-thumb-placeholder" style="display:none;">📷</div>
+        </a>
+      {% else %}
+        <div class="obs-thumb-placeholder">🎵</div>
+      {% endif %}
+
+      <div class="obs-info">
+        {# Species name #}
+        <div class="obs-species">
+          {% if obs.scientific_name %}
+            <em>{{ obs.scientific_name }}</em>
+          {% elif obs.detection_type == 'blank' %}
+            <span style="color:var(--text-muted); font-style:normal;">No detection</span>
+          {% elif obs.detection_type == 'person' %}
+            <span style="font-style:normal;">Person</span>
+          {% elif obs.detection_type == 'vehicle' %}
+            <span style="font-style:normal;">Vehicle</span>
+          {% else %}
+            <span style="color:var(--text-muted); font-style:normal;">Unknown</span>
+          {% endif %}
+        </div>
+        {% if obs.common_name %}
+          <div class="obs-common">{{ obs.common_name }}</div>
+        {% endif %}
+
+        <div class="obs-meta">
+          <span class="obs-ts">
+            {{ obs.observed_at[:16] | replace('T',' ') if obs.observed_at else '—' }}
+          </span>
+          {% if obs.confidence %}
+            <span class="badge badge-blue">{{ "%.0f"|format(obs.confidence * 100) }}%</span>
+          {% endif %}
+        </div>
+
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;
+                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          {{ obs.location_name or obs.deployment_id }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Pagination ──────────────────────────────────────────────────────── #}
+  {% if pages > 1 %}
+  <div class="pagination">
+
+    {% set qs = [] %}
+    {% if filters.q %}{% set _ = qs.append('q=' ~ filters.q) %}{% endif %}
+    {% if filters.sensor_type %}{% set _ = qs.append('sensor_type=' ~ filters.sensor_type) %}{% endif %}
+    {% if filters.deployment_id %}{% set _ = qs.append('deployment_id=' ~ filters.deployment_id) %}{% endif %}
+    {% if filters.detection_type %}{% set _ = qs.append('detection_type=' ~ filters.detection_type) %}{% endif %}
+    {% if filters.from_date %}{% set _ = qs.append('from_date=' ~ filters.from_date) %}{% endif %}
+    {% if filters.to_date %}{% set _ = qs.append('to_date=' ~ filters.to_date) %}{% endif %}
+    {% if filters.min_confidence != '' %}{% set _ = qs.append('min_confidence=' ~ filters.min_confidence) %}{% endif %}
+    {% set base_qs = qs | join('&') %}
+    {% set sep = '&' if base_qs else '' %}
+
+    <a class="page-link {% if page == 1 %}disabled{% endif %}"
+       href="?{{ base_qs }}{{ sep }}page={{ page - 1 }}">‹</a>
+
+    {% for p in range([1, page - 2] | max, [pages + 1, page + 3] | min) %}
+      <a class="page-link {% if p == page %}active{% endif %}"
+         href="?{{ base_qs }}{{ sep }}page={{ p }}">{{ p }}</a>
+    {% endfor %}
+
+    <a class="page-link {% if page == pages %}disabled{% endif %}"
+       href="?{{ base_qs }}{{ sep }}page={{ page + 1 }}">›</a>
+
+    <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+      {{ total }} total · page {{ page }}/{{ pages }}
+    </span>
+  </div>
+  {% endif %}
+
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🔍</div>
+    <div class="empty-title">No observations found</div>
+    <div class="empty-text">Try adjusting your filters or process a deployment first.</div>
+  </div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Dashboard</h1>
+  {% if recent_jobs %}
+    {% set running = recent_jobs | selectattr('status', 'eq', 'running') | list %}
+    {% if running %}
+      <span class="badge badge-blue">⟳ {{ running | length }} processing</span>
+    {% endif %}
+  {% endif %}
+</div>
+
+{# ── Stats row ─────────────────────────────────────────────────────────── #}
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.deployments }}</div>
+    <div class="stat-label">Deployments</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.media }}</div>
+    <div class="stat-label">Media files</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.observations }}</div>
+    <div class="stat-label">Observations</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.species }}</div>
+    <div class="stat-label">Species</div>
+  </div>
+</div>
+
+{# ── Main two-column grid ─────────────────────────────────────────────── #}
+<div class="dash-grid">
+
+  {# Left: recent observations #}
+  <div class="card">
+    <div class="card-title">Recent Observations
+      <a href="/observations" style="font-size:12px; font-weight:400; margin-left:8px; color:var(--text-muted);">View all →</a>
+    </div>
+
+    {% if stats.recent_observations %}
+      <ul class="recent-obs">
+        {% for obs in stats.recent_observations %}
+        <li class="recent-obs-item">
+          {% if obs.sensor_type == 'camera_trap' %}
+            <img class="recent-thumb"
+                 src="/thumb/{{ obs.deployment_id }}/{{ obs.filename }}"
+                 loading="lazy"
+                 alt="{{ obs.filename }}"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div class="recent-thumb-placeholder" style="display:none;">📷</div>
+          {% else %}
+            <div class="recent-thumb-placeholder">🎵</div>
+          {% endif %}
+          <div class="recent-info">
+            <div class="recent-species">
+              {% if obs.scientific_name %}
+                <em>{{ obs.scientific_name }}</em>
+                {% if obs.common_name %} · {{ obs.common_name }}{% endif %}
+              {% elif obs.detection_type == 'blank' %}
+                <span style="color:var(--text-muted); font-style:normal;">No detection</span>
+              {% else %}
+                {{ obs.detection_type | capitalize }}
+              {% endif %}
+            </div>
+            <div class="recent-meta">
+              {{ obs.location_name or obs.deployment_id }}
+              {% if obs.observed_at %} · {{ obs.observed_at[:16] | replace('T',' ') }}{% endif %}
+            </div>
+          </div>
+          {% if obs.confidence %}
+            <span class="badge badge-blue">{{ "%.0f"|format(obs.confidence * 100) }}%</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state" style="padding:40px 0;">
+        <div class="empty-icon">🦌</div>
+        <div class="empty-title">No observations yet</div>
+        <div class="empty-text">Upload and process a deployment to see results here.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# Right sidebar: top species + job queue #}
+  <div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">Top Species</div>
+      {% if stats.top_species %}
+        <ul class="species-list">
+          {% for sp in stats.top_species %}
+          <li>
+            <span class="species-rank">{{ loop.index }}</span>
+            <span class="species-name">
+              <em>{{ sp.scientific_name }}</em>
+              {% if sp.common_name %}
+                <br><span class="species-common">{{ sp.common_name }}</span>
+              {% endif %}
+            </span>
+            <span class="species-count">{{ sp.count }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p style="color:var(--text-muted); font-size:13px;">No species identified yet.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Processing Queue
+        <a href="/jobs" style="font-size:12px; font-weight:400; margin-left:8px; color:var(--text-muted);">All jobs →</a>
+      </div>
+      {% if recent_jobs %}
+        {% for job in recent_jobs %}
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">
+          <span class="badge badge status-badge {{ job.status }}">{{ job.status }}</span>
+          <span style="font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            {{ job.location_name or job.deployment_id }}
+          </span>
+          <span style="font-size:11px; color:var(--text-muted);">{{ job.sensor_type }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p style="color:var(--text-muted); font-size:13px;">Queue is empty.</p>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

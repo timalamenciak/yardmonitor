@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Deployments — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Deployments</h1>
+  <span class="page-sub">{{ deployments | length }} total</span>
+</div>
+
+{# ── Filters ───────────────────────────────────────────────────────────── #}
+<form class="filter-bar" method="get" action="/deployments">
+  <div class="filter-group">
+    <label class="filter-label">Sensor</label>
+    <select class="filter-select" name="sensor_type" onchange="this.form.submit()">
+      <option value="">All sensors</option>
+      <option value="camera_trap" {% if filter_sensor == 'camera_trap' %}selected{% endif %}>Camera Trap</option>
+      <option value="audiomoth"   {% if filter_sensor == 'audiomoth'   %}selected{% endif %}>AudioMoth</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Status</label>
+    <select class="filter-select" name="status" onchange="this.form.submit()">
+      <option value="">All statuses</option>
+      <option value="uploading"  {% if filter_status == 'uploading'  %}selected{% endif %}>Uploading</option>
+      <option value="queued"     {% if filter_status == 'queued'     %}selected{% endif %}>Queued</option>
+      <option value="processing" {% if filter_status == 'processing' %}selected{% endif %}>Processing</option>
+      <option value="complete"   {% if filter_status == 'complete'   %}selected{% endif %}>Complete</option>
+      <option value="failed"     {% if filter_status == 'failed'     %}selected{% endif %}>Failed</option>
+    </select>
+  </div>
+  {% if filter_sensor or filter_status %}
+    <a href="/deployments" class="btn btn-ghost btn-sm" style="align-self:flex-end;">✕ Clear</a>
+  {% endif %}
+</form>
+
+{# ── Table ─────────────────────────────────────────────────────────────── #}
+{% if deployments %}
+<div class="card" style="padding:0;">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Location / ID</th>
+          <th>Sensor</th>
+          <th>Date range</th>
+          <th>Files</th>
+          <th>Status</th>
+          <th>Uploaded</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dep in deployments %}
+        <tr>
+          <td>
+            <a href="/deployments/{{ dep.id }}" style="color:var(--text); font-weight:600;">
+              {{ dep.location_name or dep.id }}
+            </a>
+            <br>
+            <span class="td-muted" style="font-size:11px; font-family:monospace;">{{ dep.id }}</span>
+          </td>
+          <td>
+            <span class="sensor-dot {{ dep.sensor_type }}"></span>
+            {{ 'Camera Trap' if dep.sensor_type == 'camera_trap' else 'AudioMoth' }}
+          </td>
+          <td class="td-muted td-num" style="font-size:12px;">
+            {% if dep.start_dt %}
+              {{ dep.start_dt[:10] }}
+              {% if dep.end_dt and dep.end_dt[:10] != dep.start_dt[:10] %}
+                → {{ dep.end_dt[:10] }}
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="td-num">{{ dep.file_count }}</td>
+          <td>
+            <span class="badge status-badge {{ dep.status }}">{{ dep.status }}</span>
+          </td>
+          <td class="td-muted td-num" style="font-size:12px;">
+            {{ dep.uploaded_at[:16] | replace('T',' ') if dep.uploaded_at else '—' }}
+          </td>
+          <td>
+            <a href="/deployments/{{ dep.id }}" class="btn btn-ghost btn-sm">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📁</div>
+  <div class="empty-title">No deployments yet</div>
+  <div class="empty-text">
+    Use <code>client_upload.py</code> from your laptop to upload your first SD card.
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

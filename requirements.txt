@@ -1,0 +1,39 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+click>=8.0
+pyyaml>=6.0
+pandas>=2.0
+tqdm>=4.0
+Pillow>=10.0
+numpy>=1.24
+python-dateutil>=2.8
+psutil>=5.9
+requests>=2.31
+
+# ── EXIF extraction ────────────────────────────────────────────────────────────
+# Requires ExifTool CLI on PATH: https://exiftool.org
+pyexiftool>=0.5.6
+
+# ── Camera trap AI ─────────────────────────────────────────────────────────────
+# MegaDetector v5 via PytorchWildlife — https://github.com/microsoft/CameraTraps
+PytorchWildlife>=0.5
+# Google SpeciesNet — https://github.com/google/speciesnet
+speciesnet>=0.1
+
+# ── AudioMoth AI ───────────────────────────────────────────────────────────────
+# BirdNET-Analyzer v2.4 (Cornell Lab) — https://github.com/kahst/BirdNET-Analyzer
+# 6362 species; upgrade version in config/models.yaml when new releases ship
+birdnetlib>=0.9
+
+# ── Server (DGX) ───────────────────────────────────────────────────────────────
+fastapi>=0.111
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9   # multipart file upload parsing
+jinja2>=3.1               # HTML templates
+aiofiles>=23.0            # async static file serving
+
+# ── Video timelapse ────────────────────────────────────────────────────────────
+# Requires ffmpeg binary on PATH: https://ffmpeg.org
+
+# ── Legacy local dashboard (Flask) ─────────────────────────────────────────────
+flask>=3.0
+geopy>=2.4

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Settings — YardMonitor{% endblock %}
+
+{% block content %}
+<div class="settings-wrap">
+  <h1 style="font-size:22px; font-weight:700; margin-bottom:6px;">Settings</h1>
+  <p style="color:var(--text-muted); font-size:13px; margin-bottom:28px;">
+    Set your home address so YardMonitor can find your nearest
+    Environment Canada weather station.
+  </p>
+
+  {# ── Current location ── #}
+  {% if settings.get('address') %}
+  <div class="current-location-box">
+    <div class="cl-header">Current location</div>
+    <div class="cl-row"><span class="cl-key">Address</span><span class="cl-val">{{ settings.address }}</span></div>
+    <div class="cl-row"><span class="cl-key">Coordinates</span>
+      <span class="cl-val">
+        {% if settings.get('lat') %}
+          {{ "%.4f"|format(settings.lat) }}, {{ "%.4f"|format(settings.lon) }}
+        {% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="cl-row"><span class="cl-key">Province</span>
+      <span class="cl-val">{{ settings.get('province_name') or settings.get('province_code') or '—' }}</span>
+    </div>
+    <div class="cl-row"><span class="cl-key">EC Station</span>
+      <span class="cl-val">{{ settings.get('ec_site_name') or '—' }}
+        {% if settings.get('ec_site_code') %}
+          <span style="color:var(--text-muted); font-size:11px;">({{ settings.ec_site_code }})</span>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Address form ── #}
+  <div class="card">
+    <form method="post" action="{{ url_for('settings_save') }}">
+      <div class="form-group">
+        <label class="form-label" for="address">Home address</label>
+        <input
+          class="form-input"
+          type="text"
+          id="address"
+          name="address"
+          placeholder="123 Main St, Ottawa, ON"
+          value="{{ settings.get('address', '') }}"
+          autocomplete="street-address"
+          required
+        >
+        <p class="form-hint">
+          Include city and province for best results, e.g.
+          <em>456 Elm Ave, Vancouver, BC</em>.
+          Only Canadian addresses are supported.
+        </p>
+      </div>
+
+      <hr style="border:none; border-top:1px solid var(--border); margin:24px 0;">
+
+      <p class="section-heading" style="margin-bottom:12px;">Garden watering</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="watering_threshold_mm">Rain threshold (mm)</label>
+          <input
+            class="form-input-sm"
+            type="number"
+            id="watering_threshold_mm"
+            name="watering_threshold_mm"
+            min="1" max="100" step="0.5"
+            value="{{ settings.get('watering_threshold_mm', 10) }}"
+          >
+          <p class="form-hint">Rainfall at or above this amount counts as sufficient watering. 10 mm is a good default for most gardens.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="watering_horizon_days">Forecast window (days)</label>
+          <input
+            class="form-input-sm"
+            type="number"
+            id="watering_horizon_days"
+            name="watering_horizon_days"
+            min="1" max="5" step="1"
+            value="{{ settings.get('watering_horizon_days', 2) }}"
+          >
+          <p class="form-hint">How many days ahead to check for forecast rain before recommending you water.</p>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center; margin-top:24px;">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a href="{{ url_for('index') }}" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <p style="font-size:11px; color:var(--text-muted); margin-top:16px; line-height:1.5;">
+    Geocoding is performed by
+    <a href="https://nominatim.openstreetmap.org" target="_blank" rel="noopener">Nominatim / OpenStreetMap</a>.
+    Weather data is fetched from
+    <a href="https://dd.weather.gc.ca/citypage_weather/" target="_blank" rel="noopener">Environment Canada Datamart</a>
+    and cached for 30 minutes.
+  </p>
+</div>
+{% endblock %}

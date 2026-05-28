@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}YardMonitor{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="{{ url_for('index') }}">
+      <span class="leaf">🌿</span> YardMonitor
+    </a>
+    <div class="nav-links">
+      <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="active"{% endif %}>Dashboard</a>
+      <a href="{{ url_for('settings_page') }}" {% if request.endpoint == 'settings_page' %}class="active"{% endif %}>Settings</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul class="flash-list">
+        {% for category, message in messages %}
+          <li class="flash {{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  YardMonitor &mdash; Ecological Monitoring Platform &nbsp;|&nbsp;
+  Weather data: <a href="https://weather.gc.ca" target="_blank" rel="noopener">Environment and Climate Change Canada</a>
+</footer>
+
+</body>
+</html>

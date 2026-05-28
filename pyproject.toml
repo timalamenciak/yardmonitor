@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "yardmonitor"
+version = "0.2.0"
+description = "Modular ecological monitoring platform — camera traps, AudioMoth, and more"
+requires-python = ">=3.10"
+dependencies = [
+    # Core
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+    "tqdm>=4.0",
+    "Pillow>=10.0",
+    "numpy>=1.24",
+    "python-dateutil>=2.8",
+    "psutil>=5.9",
+    "requests>=2.31",
+
+    # EXIF (requires ExifTool CLI: https://exiftool.org)
+    "pyexiftool>=0.5.6",
+
+    # Camera trap AI — MegaDetector v5 + Google SpeciesNet
+    "PytorchWildlife>=0.5",
+    "speciesnet>=0.1",
+
+    # AudioMoth AI — BirdNET-Analyzer v2.4 (6362 species)
+    "birdnetlib>=0.9",
+
+    # Server
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "jinja2>=3.1",
+    "aiofiles>=23.0",
+
+    # Dashboard (legacy local Flask UI)
+    "flask>=3.0",
+    "geopy>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.1"]
+
+[project.scripts]
+yardmonitor-camera-trap = "yardmonitor.sensors.camera_trap.pipeline:main"
+yardmonitor-audiomoth   = "yardmonitor.sensors.audiomoth.pipeline:main"
+yardmonitor-server      = "server:main"
+yardmonitor-upload      = "client_upload:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["yardmonitor*"]

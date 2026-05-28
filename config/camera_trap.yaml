@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────
+# YardMonitor — Camera Trap Configuration
+# ─────────────────────────────────────────────────────────────────
+
+camera:
+  make: ""        # e.g. "Reconyx"
+  model: ""       # e.g. "HC600"
+  id: ""          # optional serial / label
+
+deployment:
+  location_name: ""
+  latitude: null
+  longitude: null
+  coordinate_uncertainty: null   # meters (1 SD)
+  height_m: null
+  tilt_degrees: null
+  heading_degrees: null
+
+ingest:
+  # Sub-directories to search for images on the SD card
+  source_subdirs:
+    - DCIM
+    - dcim
+    - ""           # search root too
+  image_extensions:
+    - .jpg
+    - .jpeg
+    - .png
+    - .tiff
+    - .tif
+    - .cr2         # Canon RAW
+    - .nef         # Nikon RAW
+    - .arw         # Sony RAW
+  skip_existing: true
+  output_dir: data/deployments
+
+megadetector:
+  model_version: "v5a"       # "v5a" | "v5b"
+  device: "cpu"               # "cpu" | "cuda" | "mps"
+  batch_size: 16
+  confidence_threshold: 0.1
+
+speciesnet:
+  enabled: true
+  country: ""                 # ISO 3166-1 alpha-2, e.g. "CA", "US"
+  min_detection_confidence: 0.2
+
+timelapse:
+  enabled: true
+  fps: 10
+  resize_width: 1280          # null to keep original resolution
+  codec: "libx264"
+
+camtrap_dp:
+  organization: ""
+  project_name: "YardMonitor"
+  license: "CC-BY-4.0"

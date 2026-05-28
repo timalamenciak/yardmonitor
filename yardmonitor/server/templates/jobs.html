@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Jobs — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Processing Jobs</h1>
+  <span class="page-sub">{{ jobs | length }} total</span>
+</div>
+
+{% set running = jobs | selectattr('status', 'eq', 'running') | list %}
+{% if running %}
+  <div style="background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.3);
+              border-radius:8px; padding:12px 16px; margin-bottom:16px;
+              display:flex; align-items:center; gap:10px; font-size:13px; color:var(--blue);">
+    <span style="animation:spin 1.2s linear infinite; display:inline-block;">⟳</span>
+    {{ running | length }} job{{ 's' if running | length > 1 else '' }} currently running — page auto-refreshes
+  </div>
+{% endif %}
+
+{% if jobs %}
+<div class="card" style="padding:0;">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>Deployment</th>
+          <th>Sensor</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Duration</th>
+          <th>Log</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td style="font-family:monospace; font-size:12px; color:var(--text-muted);">
+            {{ job.id[:12] }}…
+          </td>
+          <td>
+            <a href="/deployments/{{ job.deployment_id }}" style="color:var(--text); font-weight:500;">
+              {{ job.location_name or job.deployment_id }}
+            </a>
+            <br>
+            <span style="font-size:11px; font-family:monospace; color:var(--text-muted);">
+              {{ job.deployment_id }}
+            </span>
+          </td>
+          <td>
+            <span class="sensor-dot {{ job.sensor_type }}"></span>
+            {{ 'Camera Trap' if job.sensor_type == 'camera_trap' else 'AudioMoth' }}
+          </td>
+          <td>
+            <span class="badge status-badge {{ job.status }}">{{ job.status }}</span>
+          </td>
+          <td class="td-muted td-num" style="font-size:12px;">
+            {{ job.created_at[:16] | replace('T',' ') if job.created_at else '—' }}
+          </td>
+          <td class="td-num" style="font-size:12px; color:var(--text-muted);">
+            {% if job.started_at and job.completed_at %}
+              {% set dur = ((job.completed_at[:19] | todatetime) - (job.started_at[:19] | todatetime)).total_seconds() | int %}
+              {% if dur >= 60 %}{{ (dur // 60) }}m {{ dur % 60 }}s
+              {% else %}{{ dur }}s{% endif %}
+            {% elif job.started_at %}
+              running…
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if job.error %}
+              <span style="font-size:11px; color:var(--red);" title="{{ job.error }}">
+                ✕ {{ job.error[:60] }}{% if job.error | length > 60 %}…{% endif %}
+              </span>
+            {% elif job.log %}
+              <details>
+                <summary style="font-size:11px; color:var(--text-muted); cursor:pointer;">
+                  Show log
+                </summary>
+                <div class="job-log">{{ job.log }}</div>
+              </details>
+            {% else %}
+              <span class="td-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">⚙️</div>
+  <div class="empty-title">No jobs yet</div>
+  <div class="empty-text">Jobs appear here when you upload and process a deployment.</div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if running %}
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+<script>setTimeout(() => location.reload(), 5000);</script>
+{% endif %}
+{% endblock %}

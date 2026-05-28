@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ dep.location_name or dep.id }} — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/deployments" style="color:var(--text-muted); font-size:13px;">← Deployments</a>
+</div>
+
+<div class="page-header" style="margin-top:4px;">
+  <h1 class="page-title">{{ dep.location_name or dep.id }}</h1>
+  <span class="badge status-badge {{ dep.status }}">{{ dep.status }}</span>
+  <span class="sensor-dot {{ dep.sensor_type }}" style="margin-left:4px;"></span>
+  <span style="font-size:13px; color:var(--text-muted);">
+    {{ 'Camera Trap' if dep.sensor_type == 'camera_trap' else 'AudioMoth' }}
+  </span>
+</div>
+
+{# ── Deployment metadata ────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:16px;">
+  <div class="dep-info-grid">
+    <div class="dep-info-item">
+      <span class="dep-info-label">Deployment ID</span>
+      <span class="dep-info-value" style="font-family:monospace; font-size:12px;">{{ dep.id }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Sensor ID</span>
+      <span class="dep-info-value">{{ dep.sensor_id or '—' }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Location</span>
+      <span class="dep-info-value">{{ dep.location_name or '—' }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Coordinates</span>
+      <span class="dep-info-value">
+        {% if dep.latitude and dep.longitude %}
+          {{ "%.5f"|format(dep.latitude) }}, {{ "%.5f"|format(dep.longitude) }}
+        {% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Start</span>
+      <span class="dep-info-value">{{ dep.start_dt[:16] | replace('T',' ') if dep.start_dt else '—' }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">End</span>
+      <span class="dep-info-value">{{ dep.end_dt[:16] | replace('T',' ') if dep.end_dt else '—' }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Media files</span>
+      <span class="dep-info-value">{{ stats.media_count }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Observations</span>
+      <span class="dep-info-value">{{ stats.observation_count }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Uploaded</span>
+      <span class="dep-info-value" style="font-size:12px;">{{ dep.uploaded_at[:16] | replace('T',' ') if dep.uploaded_at else '—' }}</span>
+    </div>
+    <div class="dep-info-item">
+      <span class="dep-info-label">Processed</span>
+      <span class="dep-info-value" style="font-size:12px;">{{ dep.processed_at[:16] | replace('T',' ') if dep.processed_at else '—' }}</span>
+    </div>
+  </div>
+
+  {# Download buttons #}
+  {% if dep.status == 'complete' %}
+  <div style="display:flex; gap:8px; padding-top:16px; border-top:1px solid var(--border);">
+    {% if dep.sensor_type == 'camera_trap' %}
+      <a href="/download/{{ dep.id }}/camtrap-dp" class="btn btn-ghost btn-sm">↓ Camtrap DP package</a>
+    {% else %}
+      <a href="/download/{{ dep.id }}/darwin-core" class="btn btn-ghost btn-sm">↓ Darwin Core Archive</a>
+    {% endif %}
+    <a href="/observations?deployment_id={{ dep.id }}" class="btn btn-ghost btn-sm">Browse observations →</a>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Two column: species + jobs ────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:1fr 340px; gap:16px; margin-bottom:16px;">
+
+  {# Species detected #}
+  <div class="card">
+    <div class="card-title">Species Detected</div>
+    {% if stats.species %}
+      <ul class="species-list">
+        {% for sp in stats.species %}
+        <li>
+          <span class="species-rank">{{ loop.index }}</span>
+          <span class="species-name">
+            <em>{{ sp.scientific_name }}</em>
+            {% if sp.common_name %}<br><span class="species-common">{{ sp.common_name }}</span>{% endif %}
+          </span>
+          <span class="species-count">{{ sp.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p style="color:var(--text-muted); font-size:13px;">
+        {% if dep.status in ('uploading','queued') %}Waiting for processing…
+        {% elif dep.status == 'processing' %}Processing in progress…
+        {% else %}No species identified.{% endif %}
+      </p>
+    {% endif %}
+  </div>
+
+  {# Job history #}
+  <div class="card">
+    <div class="card-title">Processing Jobs</div>
+    {% if jobs %}
+      {% for job in jobs %}
+      <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <span class="badge status-badge {{ job.status }}">{{ job.status }}</span>
+          <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">{{ job.id[:8] }}</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted);">
+          Created: {{ job.created_at[:16] | replace('T',' ') if job.created_at else '—' }}<br>
+          {% if job.completed_at %}Completed: {{ job.completed_at[:16] | replace('T',' ') }}{% endif %}
+        </div>
+        {% if job.error %}
+          <div style="font-size:11px; color:var(--red); margin-top:4px;">{{ job.error }}</div>
+        {% endif %}
+        {% if job.log %}
+          <details style="margin-top:6px;">
+            <summary style="font-size:11px; color:var(--text-muted); cursor:pointer;">Show log</summary>
+            <div class="job-log">{{ job.log }}</div>
+          </details>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="color:var(--text-muted); font-size:13px;">No jobs yet.</p>
+    {% endif %}
+
+    {% if dep.status in ('uploading', 'complete', 'failed') %}
+    <form method="post" action="/api/deployments/{{ dep.id }}/process"
+          onsubmit="this.querySelector('button').textContent='Queued…'">
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:8px;">
+        {% if dep.status == 'failed' %}↺ Reprocess{% else %}▶ Process now{% endif %}
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Media grid ────────────────────────────────────────────────────────── #}
+{% if media %}
+<div class="card">
+  <div class="card-title">Media ({{ media | length }} files)</div>
+  <div class="media-grid">
+    {% for m in media[:120] %}
+    <div class="media-thumb-wrap">
+      {% if dep.sensor_type == 'camera_trap' %}
+        <a href="/media/{{ dep.id }}/{{ m.filename }}" target="_blank" rel="noopener">
+          <img src="/thumb/{{ dep.id }}/{{ m.filename }}"
+               loading="lazy"
+               alt="{{ m.filename }}"
+               onerror="this.parentElement.innerHTML='<div style=\'width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;background:var(--surface-2);font-size:24px;\'>📷</div>'">
+        </a>
+      {% else %}
+        <div style="width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;background:var(--surface-2);font-size:28px;">🎵</div>
+      {% endif %}
+      <div class="media-filename">{{ m.filename }}</div>
+    </div>
+    {% endfor %}
+    {% if media | length > 120 %}
+    <div style="display:flex;align-items:center;justify-content:center;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:13px;">
+      +{{ media | length - 120 }} more
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if dep.status in ('queued', 'processing') %}
+<script>
+  setTimeout(() => location.reload(), 8000);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Models — YardMonitor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">AI Model Registry</h1>
+  <span class="page-sub">Edit <code style="font-size:12px;">config/models.yaml</code> to upgrade — server restart picks up changes</span>
+</div>
+
+<p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; max-width:700px;">
+  All model versions are declared in <code>config/models.yaml</code> and reported here transparently.
+  Swap or upgrade any model by editing that file and restarting the server.
+  The <a href="/docs#/default/api_models_api_models_get" target="_blank">API endpoint</a>
+  (<code>GET /api/models</code>) returns this same data in JSON for programmatic access.
+</p>
+
+{% for name, model in models.items() %}
+<div class="model-card">
+  <div class="model-header">
+    <div>
+      <div class="model-name">{{ name | replace('_',' ') | title }}</div>
+      <div class="model-desc">{{ model.description }}</div>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0;">
+      <span class="model-version">{{ model.version }}</span>
+      <a href="{{ model.link }}" target="_blank" rel="noopener"
+         style="font-size:11px; color:var(--text-muted);">Source ↗</a>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+    <span class="badge badge-muted">source: {{ model.source }}</span>
+    {% if name == 'megadetector' %}
+      <span class="badge badge-muted">camera trap images</span>
+    {% elif name == 'speciesnet' %}
+      <span class="badge badge-muted">species classification</span>
+    {% elif name == 'birdnet' %}
+      <span class="badge badge-muted">audio recordings</span>
+      <span class="badge badge-blue">6362 species</span>
+    {% endif %}
+  </div>
+
+  <div class="section-label">Active parameters (from config/models.yaml)</div>
+  <div class="model-params">
+    {% for k, v in model.params.items() %}
+    <div><span>{{ k }}</span>: <span class="val">{{ v if v is not none else 'null' }}</span></div>
+    {% endfor %}
+  </div>
+
+  <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
+              font-size:12px; color:var(--text-muted);">
+    To upgrade: open <code>config/models.yaml</code>, change the
+    <code>version</code> and/or <code>params</code> for <code>{{ name }}</code>,
+    then restart the server.
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}

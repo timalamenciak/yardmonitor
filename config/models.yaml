@@ -1,0 +1,38 @@
+# YardMonitor — AI Model Registry
+#
+# Edit this file to upgrade or swap AI models.
+# Changes take effect when the server restarts (models reload if version string changes).
+# The server exposes this registry at GET /api/models so you can always see what's running.
+
+models:
+
+  megadetector:
+    version: "v5a"            # "v5a" | "v5b"
+    description: "Microsoft MegaDetector v5 — animal/person/vehicle detection in camera trap images"
+    source: "PytorchWildlife"
+    link: "https://github.com/microsoft/CameraTraps/blob/main/megadetector.md"
+    params:
+      device: "cuda"          # "cuda" | "cpu" | "mps"  — use "cuda" on DGX
+      batch_size: 32
+      confidence_threshold: 0.1
+
+  speciesnet:
+    version: "1.0"
+    description: "Google SpeciesNet — species classification from camera trap images"
+    source: "speciesnet (pip)"
+    link: "https://github.com/google/speciesnet"
+    params:
+      country: ""             # ISO 3166-1 alpha-2, e.g. "CA" or "US" — improves accuracy
+      min_detection_confidence: 0.2
+
+  birdnet:
+    version: "2.4"
+    description: "Cornell Lab BirdNET-Analyzer v2.4 — bird/wildlife ID from audio (6362 species)"
+    source: "birdnetlib (pip)"
+    link: "https://github.com/kahst/BirdNET-Analyzer"
+    params:
+      min_confidence: 0.1
+      overlap: 0.0            # seconds of overlap between 3-s analysis windows
+      sensitivity: 1.0        # 0.5–1.5; higher = more detections
+      lat: null               # deployment latitude for seasonal filtering
+      lon: null               # deployment longitude for seasonal filtering

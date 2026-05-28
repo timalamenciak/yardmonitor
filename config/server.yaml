@@ -1,0 +1,19 @@
+# YardMonitor — Server Configuration (DGX / spark-1267)
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  data_dir: "data"            # root directory for all deployment data and the SQLite DB
+  pipeline_workers: 1         # background AI worker threads (1 recommended per GPU)
+  log_level: "info"
+  secret_key: "change-me-in-production"   # used for signed URLs / session tokens
+
+camtrap_dp:
+  organization: ""
+  project_name: "YardMonitor"
+  license: "CC-BY-4.0"
+
+darwin_core:
+  organization: ""
+  project_name: "YardMonitor"
+  license: "CC-BY-4.0"

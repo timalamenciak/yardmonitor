@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — YardMonitor{% endblock %}
+
+{% block content %}
+
+{# ════════════════════════════════════════════════════════════════════════════
+   WATERING RECOMMENDATION
+   ════════════════════════════════════════════════════════════════════════════ #}
+{% if watering %}
+{% set icons = {"yes": "🌱", "no": "🌧️", "maybe": "☁️", "unknown": "❓"} %}
+{% set labels = {"yes": "Water today", "no": "Skip today", "maybe": "Not sure", "unknown": "Unknown"} %}
+<div class="card watering-card verdict-{{ watering.verdict }}">
+  <div class="watering-inner">
+
+    <div class="watering-verdict">
+      <span class="watering-icon">{{ icons[watering.verdict] }}</span>
+      <span class="watering-label">{{ labels[watering.verdict] }}</span>
+    </div>
+
+    <div class="watering-divider"></div>
+
+    <div class="watering-text">
+      <div class="watering-reason">{{ watering.reason }}</div>
+      <div class="watering-detail">{{ watering.detail }}</div>
+    </div>
+
+    {% if watering.verdict != "unknown" %}
+    <div class="watering-stats">
+      <div class="ws-item">
+        <div class="ws-value">{{ "%.0f"|format(watering.yesterday_mm) }}</div>
+        <div class="ws-label">mm yesterday</div>
+      </div>
+      <div class="ws-item">
+        <div class="ws-value">{{ "%.0f"|format(watering.forecast_mm) }}</div>
+        <div class="ws-label">mm forecast</div>
+      </div>
+      <div class="ws-item">
+        <div class="ws-value">{{ "%.0f"|format(watering.threshold_mm) }}</div>
+        <div class="ws-label">mm threshold</div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TOP ROW: current weather  |  camera trap summary
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="top-row">
+
+  {# ── Current conditions ── #}
+  <div class="card weather-card">
+    <p class="section-heading">Weather</p>
+
+    {% if weather and weather.current %}
+      {% set cur = weather.current %}
+
+      <div class="weather-location">
+        <span class="station">{{ weather.location_name }}
+          {% if cur.station and cur.station != weather.location_name %}
+            <span style="color:var(--text-muted); font-size:11px; font-weight:400;">
+              — {{ cur.station }}
+            </span>
+          {% endif %}
+        </span>
+        {% if cur.obs_time %}
+          <span class="obs-time">{{ cur.obs_time }}</span>
+        {% endif %}
+      </div>
+
+      <div class="weather-main">
+        <div class="temp-block">
+          {% set temp_f = cur.temperature | float(default=999) %}
+          <div class="temp-value {% if temp_f < 0 %}cold{% elif temp_f > 25 %}warm{% endif %}">
+            {{ cur.temperature | default('—') }}<span class="temp-unit">{{ cur.temp_unit }}</span>
+          </div>
+          {% if cur.feels_like %}
+            <div class="feels-like">
+              Feels like {{ cur.feels_like }}{{ cur.temp_unit }}
+              {% if cur.wind_chill %}(wind chill){% elif cur.humidex %}(humidex){% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="condition-block">
+          <span class="cond-icon">{{ cur.icon }}</span>
+          <span class="cond-text">{{ cur.condition | default('—') }}</span>
+        </div>
+      </div>
+
+      <div class="weather-details">
+        <div class="detail-item">
+          <span class="detail-label">Humidity</span>
+          <span class="detail-value">{{ cur.humidity }}%</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Wind</span>
+          <span class="detail-value">
+            {% if cur.wind_speed %}{{ cur.wind_speed }} km/h{% else %}—{% endif %}
+          </span>
+          <span class="detail-sub">
+            {{ cur.wind_dir }}
+            {% if cur.wind_gust %}&nbsp;· gust {{ cur.wind_gust }} km/h{% endif %}
+          </span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Pressure</span>
+          <span class="detail-value">{{ cur.pressure }} kPa</span>
+          <span class="detail-sub">{{ cur.pressure_tendency | capitalize }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Visibility</span>
+          <span class="detail-value">{{ cur.visibility or '—' }} km</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Dew Point</span>
+          <span class="detail-value">{{ cur.dewpoint or '—' }}{{ cur.temp_unit }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Station</span>
+          <span class="detail-value" style="font-size:11px; color:var(--text-muted);">
+            {{ settings.get('ec_site_name') or '—' }}
+          </span>
+        </div>
+      </div>
+
+      <div class="weather-actions">
+        <span class="weather-source">
+          🍁 Environment Canada &mdash;
+          {% if weather.fetched_at %}
+            updated {{ ((now - weather.fetched_at) / 60) | int }} min ago
+          {% endif %}
+        </span>
+        <form method="post" action="{{ url_for('weather_refresh') }}" style="margin:0;">
+          <button type="submit" class="btn btn-ghost btn-sm">↻ Refresh</button>
+        </form>
+      </div>
+
+    {% elif settings.get('address') %}
+      <div class="no-data-placeholder">
+        <span class="nd-icon">🌐</span>
+        <p>Weather data unavailable.<br>Check your connection or <a href="{{ url_for('settings_page') }}">verify your location</a>.</p>
+      </div>
+    {% else %}
+      <div class="no-data-placeholder">
+        <span class="nd-icon">📍</span>
+        <p>No location set.<br><a href="{{ url_for('settings_page') }}">Set your address</a> to see Environment Canada weather.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ── Camera trap summary ── #}
+  <div class="card stats-card">
+    <p class="section-heading">Camera Trap Summary</p>
+
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.total_deployments }}</div>
+        <div class="stat-label">Deployments</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.total_images }}</div>
+        <div class="stat-label">Images</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.all_species | length }}</div>
+        <div class="stat-label">Species</div>
+      </div>
+    </div>
+
+    {% if stats.all_species %}
+      <div style="margin-top:16px;">
+        <p class="section-heading" style="margin-bottom:8px;">Species detected</p>
+        <div class="species-cloud">
+          {% for sp in stats.all_species %}
+            <span class="species-tag">{{ sp }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <div class="no-data-placeholder" style="padding:20px 0 0;">
+        <span class="nd-icon">📷</span>
+        <p>No deployments yet.<br>Run <code style="font-size:11px;">python run_camera_trap.py</code> to process your first SD card.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   FORECAST STRIP
+   ════════════════════════════════════════════════════════════════════════════ #}
+{% if weather and weather.forecast %}
+<div class="card forecast-card">
+  <p class="section-heading">Forecast</p>
+  <div class="forecast-strip">
+    {% for fc in weather.forecast %}
+    <div class="forecast-period">
+      <span class="fc-name" title="{{ fc.period }}">{{ fc.period }}</span>
+      <span class="fc-icon">{{ fc.icon }}</span>
+      <span class="fc-temp {{ fc.temp_class }}">
+        {{ fc.temperature }}{{ weather.current.temp_unit if weather.current else '°C' }}
+      </span>
+      {% if fc.pop %}
+        <span class="fc-pop">💧 {{ fc.pop }}%</span>
+      {% endif %}
+      <span class="fc-summary">{{ fc.summary }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ════════════════════════════════════════════════════════════════════════════
+   DEPLOYMENTS TABLE
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="card table-card">
+  <div class="table-header">
+    <span class="table-title">Deployments</span>
+    <span style="font-size:12px; color:var(--text-muted);">{{ stats.total_deployments }} total</span>
+  </div>
+
+  {% if stats.deployments %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Location</th>
+          <th>Date range</th>
+          <th>Camera</th>
+          <th>Images</th>
+          <th>Animals</th>
+          <th>Species</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dep in stats.deployments %}
+        <tr>
+          <td>
+            <strong>{{ dep.location_name }}</strong>
+            <br><span class="td-muted" style="font-size:11px;">{{ dep.deployment_id }}</span>
+          </td>
+          <td class="td-muted td-num">
+            {{ dep.start }}{% if dep.start and dep.end != '—' %} → {{ dep.end }}{% endif %}
+          </td>
+          <td class="td-muted">{{ dep.camera or '—' }}</td>
+          <td class="td-num">{{ dep.image_count }}</td>
+          <td class="td-num">
+            {% if dep.animal_count > 0 %}
+              <span class="badge badge-green">{{ dep.animal_count }}</span>
+            {% else %}
+              <span class="td-muted">0</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if dep.species %}
+              <div class="species-list-inline">
+                {% for sp in dep.species[:3] %}
+                  <span class="badge badge-muted td-italic">{{ sp }}</span>
+                {% endfor %}
+                {% if dep.species | length > 3 %}
+                  <span class="badge badge-muted">+{{ dep.species | length - 3 }} more</span>
+                {% endif %}
+              </div>
+            {% else %}
+              <span class="td-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="no-data-placeholder">
+    <span class="nd-icon">📁</span>
+    <p>No deployment data found in <code style="font-size:11px;">data/deployments/</code>.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   RECENT DETECTIONS
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="card table-card">
+  <div class="table-header">
+    <span class="table-title">Recent Detections</span>
+    <span style="font-size:12px; color:var(--text-muted);">{{ stats.total_animals }} animal observations total</span>
+  </div>
+
+  {% if stats.recent_observations %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Species</th>
+          <th>Location</th>
+          <th>Date</th>
+          <th>Confidence</th>
+          <th>Method</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obs in stats.recent_observations %}
+        <tr>
+          <td class="td-italic"><strong>{{ obs.scientific_name }}</strong></td>
+          <td class="td-muted">{{ obs.location }}</td>
+          <td class="td-muted td-num">{{ obs.timestamp_short }}</td>
+          <td>
+            {% if obs.confidence and obs.confidence != '—' %}
+              <span class="badge badge-blue">{{ obs.confidence }}</span>
+            {% else %}
+              <span class="td-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="td-muted" style="font-size:11px;">{{ obs.method }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="no-data-placeholder">
+    <span class="nd-icon">🦌</span>
+    <p>No animal detections recorded yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
