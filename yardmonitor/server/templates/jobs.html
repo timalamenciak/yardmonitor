@@ -59,10 +59,9 @@
             {{ job.created_at[:16] | replace('T',' ') if job.created_at else '—' }}
           </td>
           <td class="td-num" style="font-size:12px; color:var(--text-muted);">
-            {% if job.started_at and job.completed_at %}
-              {% set dur = ((job.completed_at[:19] | todatetime) - (job.started_at[:19] | todatetime)).total_seconds() | int %}
-              {% if dur >= 60 %}{{ (dur // 60) }}m {{ dur % 60 }}s
-              {% else %}{{ dur }}s{% endif %}
+            {% if job.duration_s is not none %}
+              {% if job.duration_s >= 60 %}{{ job.duration_s // 60 }}m {{ job.duration_s % 60 }}s
+              {% else %}{{ job.duration_s }}s{% endif %}
             {% elif job.started_at %}
               running…
             {% else %}

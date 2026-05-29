@@ -439,4 +439,19 @@ class Database:
                    ORDER BY j.created_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                if d.get("started_at") and d.get("completed_at"):
+                    delta = (
+                        datetime.fromisoformat(d["completed_at"][:19])
+                        - datetime.fromisoformat(d["started_at"][:19])
+                    )
+                    d["duration_s"] = int(delta.total_seconds())
+                else:
+                    d["duration_s"] = None
+            except Exception:
+                d["duration_s"] = None
+            result.append(d)
+        return result

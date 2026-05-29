@@ -25,6 +25,7 @@ dependencies = [
     # Camera trap AI — MegaDetector v5 + Google SpeciesNet
     "PytorchWildlife>=0.5",
     "soundfile>=0.12",          # required by PytorchWildlife but not declared by it
+    "librosa>=0.10",            # required by PytorchWildlife but not declared by it
     "speciesnet>=0.1",
 
     # AudioMoth AI — BirdNET-Analyzer v2.4 (6362 species)
