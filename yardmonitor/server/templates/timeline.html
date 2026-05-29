@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}Timeline — YardMonitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <span class="page-title">Timeline</span>
+  <span class="page-sub" id="tl-summary">Loading…</span>
+</div>
+
+<form class="filter-bar" method="get" action="/timeline">
+  <div class="filter-group">
+    <label class="filter-label">From</label>
+    <input class="filter-input" type="date" name="from_date" value="{{ filters.from_date }}">
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">To</label>
+    <input class="filter-input" type="date" name="to_date" value="{{ filters.to_date }}">
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Location</label>
+    <select class="filter-select" name="location_name">
+      <option value="">All locations</option>
+      {% for loc in locations %}
+      <option value="{{ loc }}" {% if filters.location_name == loc %}selected{% endif %}>{{ loc }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Deployment</label>
+    <select class="filter-select" name="deployment_id">
+      <option value="">All deployments</option>
+      {% for dep in deployments %}
+      <option value="{{ dep.id }}" {% if filters.deployment_id == dep.id %}selected{% endif %}>{{ dep.id }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label">Group window</label>
+    <select class="filter-select" id="tl-window-select" onchange="Timeline.setWindow(this.value)">
+      <option value="60">1 min</option>
+      <option value="300" selected>5 min</option>
+      <option value="1800">30 min</option>
+      <option value="3600">1 hour</option>
+    </select>
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <button class="btn btn-primary" type="submit">Apply</button>
+  </div>
+</form>
+
+<div class="timeline-controls" id="tl-controls" style="display:none">
+  <button class="btn btn-primary btn-sm" id="tl-play-btn" onclick="Timeline.togglePlay()">&#9654; Play</button>
+  <button class="btn btn-ghost btn-sm" onclick="Timeline.reset()">&#8617; Reset</button>
+  <input type="range" class="tl-progress" id="tl-progress" min="0" max="100" value="0"
+         oninput="Timeline.seekTo(+this.value)" onchange="Timeline.seekTo(+this.value)">
+  <span class="tl-counter" id="tl-counter">–</span>
+  <select class="filter-select" style="min-width:72px;padding:5px 8px;font-size:12px"
+          onchange="Timeline.setSpeed(+this.value)" title="Playback speed">
+    <option value="0.5">0.5×</option>
+    <option value="1" selected>1×</option>
+    <option value="2">2×</option>
+    <option value="4">4×</option>
+    <option value="8">8×</option>
+  </select>
+  <span class="tl-current-time" id="tl-current-time"></span>
+</div>
+
+<div id="timeline-events">
+  <div class="tl-loading">
+    <div class="tl-spinner"></div>
+    Loading timeline…
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TL_FILTERS = {
+  from_date:     "{{ filters.from_date }}",
+  to_date:       "{{ filters.to_date }}",
+  deployment_id: "{{ filters.deployment_id }}",
+  location_name: "{{ filters.location_name }}",
+};
+
+const Timeline = {
+  raw:        [],
+  events:     [],
+  currentIdx: -1,
+  playing:    false,
+  speed:      1,
+  windowSec:  300,
+  timer:      null,
+
+  async init() {
+    const p = new URLSearchParams();
+    if (TL_FILTERS.from_date)     p.set('from_date',     TL_FILTERS.from_date);
+    if (TL_FILTERS.to_date)       p.set('to_date',       TL_FILTERS.to_date);
+    if (TL_FILTERS.deployment_id) p.set('deployment_id', TL_FILTERS.deployment_id);
+    if (TL_FILTERS.location_name) p.set('location_name', TL_FILTERS.location_name);
+
+    let data;
+    try {
+      const resp = await fetch('/api/timeline?' + p);
+      data = await resp.json();
+    } catch (e) {
+      this._showError(e.message);
+      return;
+    }
+
+    this.raw    = data;
+    this.events = this._group(data, this.windowSec);
+    this._render();
+
+    const summary = document.getElementById('tl-summary');
+    summary.textContent = data.length === 0
+      ? 'No media found'
+      : `${data.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
+
+    if (this.events.length > 0) {
+      document.getElementById('tl-controls').style.display = 'flex';
+    }
+  },
+
+  _group(items, windowSec) {
+    const WIN = windowSec * 1000;
+    const events = [];
+    let cur = null;
+    for (const item of items) {
+      if (!item.captured_at) continue;
+      const ts = new Date(item.captured_at).getTime();
+      if (isNaN(ts)) continue;
+      if (!cur || ts - cur.endTs > WIN || item.location_name !== cur.location) {
+        cur = { ts, endTs: ts, location: item.location_name, items: [item] };
+        events.push(cur);
+      } else {
+        cur.endTs = ts;
+        cur.items.push(item);
+      }
+    }
+    return events;
+  },
+
+  _render() {
+    const wrap = document.getElementById('timeline-events');
+    wrap.innerHTML = '';
+
+    if (this.events.length === 0) {
+      wrap.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📷</div>
+        <div class="empty-title">No media with timestamps found</div>
+        <div class="empty-text">Upload and process a deployment, then come back here.</div>
+      </div>`;
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    let lastDay = null;
+
+    this.events.forEach((evt, i) => {
+      const d   = new Date(evt.ts);
+      const day = d.toISOString().slice(0, 10);
+      if (day !== lastDay) {
+        frag.appendChild(this._dayEl(d));
+        lastDay = day;
+      }
+      frag.appendChild(this._eventEl(evt, i));
+    });
+
+    wrap.appendChild(frag);
+
+    // Stagger fade-in (cap at 2 s total)
+    wrap.querySelectorAll('.timeline-event').forEach((el, i) => {
+      setTimeout(() => el.classList.add('visible'), Math.min(i * 55, 1800));
+    });
+
+    this._updateCounter();
+  },
+
+  _dayEl(d) {
+    const label = d.toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const el = document.createElement('div');
+    el.className = 'timeline-day';
+    el.innerHTML = `<div class="tl-day-line"></div>
+      <div class="timeline-day-label">${label}</div>
+      <div class="tl-day-line"></div>`;
+    return el;
+  },
+
+  _eventEl(evt, idx) {
+    const photos = evt.items.filter(i => i.mime_type && i.mime_type.startsWith('image/'));
+    const audios = evt.items.filter(i => i.mime_type && i.mime_type.startsWith('audio/'));
+
+    // Deduplicated species sorted by confidence
+    const seen = new Set();
+    const species = evt.items
+      .flatMap(i => i.observations || [])
+      .filter(o => {
+        const key = o.scientific_name || o.common_name || o.detection_type;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+
+    const timeStr = new Date(evt.ts).toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+
+    const dotType = photos.length && audios.length ? 'paired'
+                  : audios.length ? 'audio' : 'camera';
+
+    // Photos grid (max 6)
+    const photosHtml = photos.length ? `<div class="timeline-photos">${
+      photos.slice(0, 6).map(p =>
+        `<div class="timeline-photo-wrap"
+              onclick="window.open('/media/${p.deployment_id}/${encodeURIComponent(p.filename)}','_blank')"
+              title="${this._esc(p.filename)}">
+           <img src="/thumb/${p.deployment_id}/${encodeURIComponent(p.filename)}"
+                loading="lazy" alt="${this._esc(p.filename)}">
+         </div>`
+      ).join('')
+    }</div>` : '';
+
+    // Audio rows (max 3)
+    const audioHtml = audios.length ? `<div class="timeline-audio-row">
+      <span style="font-size:16px;flex-shrink:0;margin-top:2px">&#127925;</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
+          ${audios.length} recording${audios.length !== 1 ? 's' : ''}
+        </div>
+        ${audios.slice(0, 3).map(a =>
+          `<audio controls preload="none" src="/media/${a.deployment_id}/${encodeURIComponent(a.filename)}"
+                  style="width:100%;height:28px;margin-top:2px"></audio>`
+        ).join('')}
+      </div>
+    </div>` : '';
+
+    // Species / detection tags
+    const tagsHtml = species.length ? `<div class="timeline-tags">${
+      species.slice(0, 12).map(o => {
+        const name = o.common_name || o.scientific_name || o.detection_type;
+        const pct  = o.confidence != null ? Math.round(o.confidence * 100) : null;
+        const cls  = o.sensor_type === 'audiomoth'    ? 'badge-blue'
+                   : o.detection_type === 'person'    ? 'badge-amber'
+                   : o.detection_type === 'vehicle'   ? 'badge-purple'
+                   : o.detection_type === 'blank'     ? 'badge-muted'
+                   : 'badge-green';
+        const italic = (o.detection_type === 'animal' && o.scientific_name)
+                       ? 'font-style:italic' : '';
+        return `<span class="badge ${cls}" style="${italic}"
+                      title="${this._esc(o.scientific_name || '')}">${this._esc(name)}${
+                  pct != null ? ` <span style="opacity:.65">${pct}%</span>` : ''
+                }</span>`;
+      }).join('')
+    }</div>` : '';
+
+    const locBadge = evt.location
+      ? `<span class="badge badge-muted" style="font-size:10px">${this._esc(evt.location)}</span>`
+      : '';
+
+    const countBadges = [
+      photos.length ? `<span class="badge badge-green" style="font-size:10px">&#128247; ${photos.length}</span>` : '',
+      audios.length ? `<span class="badge badge-blue"  style="font-size:10px">&#127925; ${audios.length}</span>` : '',
+    ].join('');
+
+    const card = `<div class="timeline-card">
+      <div class="timeline-card-header">
+        <span class="timeline-time">${timeStr}</span>
+        ${locBadge}${countBadges}
+      </div>
+      ${photosHtml}${audioHtml}${tagsHtml}
+    </div>`;
+
+    const el = document.createElement('div');
+    el.className = 'timeline-event';
+    el.dataset.idx = idx;
+    el.dataset.ts  = evt.ts;
+    el.innerHTML   = `
+      <div class="tl-gutter">
+        <div class="timeline-dot ${dotType}"></div>
+        <div class="tl-line"></div>
+      </div>
+      <div class="tl-body">${card}</div>`;
+    return el;
+  },
+
+  // ── Playback ───────────────────────────────────────────────────────────────
+
+  togglePlay() {
+    this.playing ? this.pause() : this.play();
+  },
+
+  play() {
+    if (!this.events.length) return;
+    if (this.currentIdx >= this.events.length - 1) this._clearHighlights(), this.currentIdx = -1;
+    this.playing = true;
+    document.getElementById('tl-play-btn').innerHTML = '&#9646;&#9646; Pause';
+    this._tick();
+  },
+
+  pause() {
+    this.playing = false;
+    clearTimeout(this.timer);
+    document.getElementById('tl-play-btn').innerHTML = '&#9654; Play';
+    // Stop dot pulse on highlighted event
+    document.querySelectorAll('.timeline-dot.playing')
+            .forEach(d => d.classList.remove('playing'));
+  },
+
+  reset() {
+    this.pause();
+    this.currentIdx = -1;
+    this._clearHighlights();
+    document.getElementById('tl-progress').value = 0;
+    document.getElementById('tl-current-time').textContent = '';
+    this._updateCounter();
+  },
+
+  _tick() {
+    this.currentIdx++;
+    if (this.currentIdx >= this.events.length) {
+      this.pause();
+      this.currentIdx = this.events.length - 1;
+      return;
+    }
+    this._highlightCurrent();
+    this.timer = setTimeout(() => { if (this.playing) this._tick(); }, Math.max(150, 1000 / this.speed));
+  },
+
+  _highlightCurrent() {
+    this._clearHighlights();
+    const els = document.querySelectorAll('.timeline-event[data-idx]');
+    const el  = els[this.currentIdx];
+    if (el) {
+      el.classList.add('highlighted');
+      el.querySelector('.timeline-dot')?.classList.add('playing');
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    this._updateCounter();
+    this._updateProgress();
+    this._updateCurrentTime();
+  },
+
+  seekTo(pct) {
+    const idx = Math.round((pct / 100) * (this.events.length - 1));
+    this.currentIdx = Math.max(0, Math.min(idx, this.events.length - 1));
+    this._highlightCurrent();
+  },
+
+  setSpeed(v)  { this.speed     = +v; },
+  setWindow(v) {
+    this.windowSec = +v;
+    this.events    = this._group(this.raw, this.windowSec);
+    this.reset();
+    this._render();
+    const s = document.getElementById('tl-summary');
+    if (s) s.textContent = `${this.raw.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
+    if (this.events.length > 0) document.getElementById('tl-controls').style.display = 'flex';
+  },
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  _clearHighlights() {
+    document.querySelectorAll('.timeline-event.highlighted').forEach(el => el.classList.remove('highlighted'));
+    document.querySelectorAll('.timeline-dot.playing').forEach(d => d.classList.remove('playing'));
+  },
+
+  _updateCounter() {
+    const el = document.getElementById('tl-counter');
+    if (!el) return;
+    el.textContent = this.events.length
+      ? `${Math.max(0, this.currentIdx + 1)} / ${this.events.length}`
+      : 'No events';
+  },
+
+  _updateProgress() {
+    const el = document.getElementById('tl-progress');
+    if (el && this.events.length > 1)
+      el.value = (this.currentIdx / (this.events.length - 1)) * 100;
+  },
+
+  _updateCurrentTime() {
+    const el = document.getElementById('tl-current-time');
+    if (!el || this.currentIdx < 0) return;
+    const evt = this.events[this.currentIdx];
+    if (!evt) return;
+    el.textContent = new Date(evt.ts).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  },
+
+  _showError(msg) {
+    document.getElementById('timeline-events').innerHTML = `<div class="empty-state">
+      <div class="empty-icon">&#9888;</div>
+      <div class="empty-title">Failed to load timeline</div>
+      <div class="empty-text">${this._esc(msg)}</div>
+    </div>`;
+    document.getElementById('tl-summary').textContent = 'Error';
+  },
+
+  _esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => Timeline.init());
+</script>
+{% endblock %}

@@ -18,6 +18,7 @@
       <a href="/"             {% if request.url.path == '/'             %}class="active"{% endif %}>Dashboard</a>
       <a href="/deployments"  {% if '/deployments' in request.url.path  %}class="active"{% endif %}>Deployments</a>
       <a href="/observations" {% if request.url.path == '/observations'  %}class="active"{% endif %}>Observations</a>
+      <a href="/timeline"    {% if request.url.path == '/timeline'      %}class="active"{% endif %}>Timeline</a>
       <a href="/jobs"         {% if request.url.path == '/jobs'          %}class="active"{% endif %}>Jobs</a>
       <a href="/models"       {% if request.url.path == '/models'        %}class="active"{% endif %}>Models</a>
     </div>

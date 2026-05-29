@@ -186,11 +186,29 @@ async def api_upload_file(
     safe_name = Path(file.filename).name
     dest = media_dir / safe_name
 
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: _write_upload(file.file, dest))
 
     _db(request).increment_file_count(dep_id)
     return {"filename": safe_name, "size": dest.stat().st_size}
+
+
+def _write_upload(src, dest: Path) -> None:
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(src, f)
+
+
+@app.get("/api/deployments/{dep_id}/files")
+async def api_list_uploaded_files(dep_id: str, request: Request):
+    """Return a list of filenames already present in this deployment's media directory."""
+    dep = _db(request).get_deployment(dep_id)
+    if dep is None:
+        raise HTTPException(404, "Deployment not found")
+    media_dir = _dep_dir(_data_dir(request), dep_id) / "media"
+    if not media_dir.exists():
+        return []
+    return sorted(p.name for p in media_dir.iterdir() if p.is_file())
 
 
 @app.post("/api/deployments/{dep_id}/process")
@@ -409,6 +427,50 @@ async def ui_observations(
                 "from_date": from_date or "",
                 "to_date": to_date or "",
                 "min_confidence": min_confidence if min_confidence is not None else "",
+            },
+        },
+    )
+
+
+@app.get("/api/timeline")
+async def api_timeline(
+    request: Request,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    deployment_id: Optional[str] = None,
+    location_name: Optional[str] = None,
+    limit: int = Query(500, ge=1, le=2000),
+):
+    return _db(request).get_timeline_data(
+        from_date=from_date,
+        to_date=to_date,
+        deployment_id=deployment_id,
+        location_name=location_name,
+        limit=limit,
+    )
+
+
+@app.get("/timeline", response_class=HTMLResponse)
+async def ui_timeline(
+    request: Request,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    deployment_id: Optional[str] = None,
+    location_name: Optional[str] = None,
+):
+    deps = _db(request).list_deployments()
+    locations = sorted({d["location_name"] for d in deps if d.get("location_name")})
+    return templates.TemplateResponse(
+        request,
+        "timeline.html",
+        {
+            "deployments": deps,
+            "locations": locations,
+            "filters": {
+                "from_date": from_date or "",
+                "to_date": to_date or "",
+                "deployment_id": deployment_id or "",
+                "location_name": location_name or "",
             },
         },
     )

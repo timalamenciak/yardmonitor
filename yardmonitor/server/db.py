@@ -120,7 +120,7 @@ class Database:
         )
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO deployments
+                """INSERT OR IGNORE INTO deployments
                    (id, sensor_type, sensor_id, location_name, latitude, longitude,
                     uploaded_at, status, file_count)
                    VALUES (?,?,?,?,?,?,?,?,0)""",
@@ -323,6 +323,73 @@ class Database:
             ).fetchall()
 
         return [dict(r) for r in rows], total
+
+    def get_timeline_data(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        deployment_id: Optional[str] = None,
+        location_name: Optional[str] = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        clauses: list[str] = ["m.captured_at IS NOT NULL"]
+        params: list[Any] = []
+
+        if from_date:
+            clauses.append("m.captured_at >= ?")
+            params.append(from_date)
+        if to_date:
+            clauses.append("m.captured_at <= ?")
+            params.append(to_date + "T23:59:59")
+        if deployment_id:
+            clauses.append("m.deployment_id = ?")
+            params.append(deployment_id)
+        if location_name:
+            clauses.append("d.location_name = ?")
+            params.append(location_name)
+
+        where = "WHERE " + " AND ".join(clauses)
+
+        with self._conn() as conn:
+            media_rows = conn.execute(
+                f"""SELECT m.id, m.deployment_id, m.filename, m.relative_path,
+                           m.captured_at, m.mime_type, m.file_size,
+                           d.location_name, d.sensor_type, d.latitude, d.longitude
+                    FROM media m
+                    JOIN deployments d ON d.id = m.deployment_id
+                    {where}
+                    ORDER BY m.captured_at ASC
+                    LIMIT ?""",
+                params + [limit],
+            ).fetchall()
+
+            if not media_rows:
+                return []
+
+            media_ids = [r["id"] for r in media_rows]
+            placeholders = ",".join("?" * len(media_ids))
+            obs_rows = conn.execute(
+                f"""SELECT id, media_id, sensor_type, detection_type,
+                           scientific_name, common_name, confidence, observed_at,
+                           detector_model, classifier_model
+                    FROM observations
+                    WHERE media_id IN ({placeholders})
+                    ORDER BY confidence DESC""",
+                media_ids,
+            ).fetchall()
+
+        obs_by_media: dict[str, list[dict]] = {}
+        for obs in obs_rows:
+            mid = obs["media_id"]
+            obs_by_media.setdefault(mid, []).append(dict(obs))
+
+        result = []
+        for row in media_rows:
+            item = dict(row)
+            item["observations"] = obs_by_media.get(item["id"], [])
+            result.append(item)
+
+        return result
 
     def get_species_summary(self) -> list[dict]:
         with self._conn() as conn:

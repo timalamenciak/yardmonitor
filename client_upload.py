@@ -30,6 +30,7 @@ import argparse
 import platform
 import string
 import sys
+import time
 from pathlib import Path
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".cr2", ".nef", ".arw"}
@@ -93,6 +94,8 @@ def main() -> None:
     parser.add_argument("--deployment-id", help="Reuse existing deployment ID")
     parser.add_argument("--no-process",    action="store_true", help="Upload only, do not trigger AI")
     parser.add_argument("--dry-run",       action="store_true", help="List files without uploading")
+    parser.add_argument("--resume",        action="store_true", help="Skip files already on the server (requires --deployment-id)")
+    parser.add_argument("--retries",       type=int, default=3, help="Per-file retry attempts on failure")
     args = parser.parse_args()
 
     try:
@@ -166,34 +169,65 @@ def main() -> None:
     print(f"  Deployment: {dep_id}")
     print(f"  View at:    {server}/deployments/{dep_id}")
 
-    # ── 4. Upload files ───────────────────────────────────────────────────
+    # ── 4. Optionally skip already-uploaded files ─────────────────────────
+    if args.resume and args.deployment_id:
+        print("Checking which files are already on the server…")
+        try:
+            r = requests.get(f"{server}/api/deployments/{dep_id}/files", timeout=30)
+            r.raise_for_status()
+            existing = set(r.json())
+            before = len(files)
+            files = [f for f in files if f.name not in existing]
+            skipped = before - len(files)
+            if skipped:
+                print(f"  Skipping {skipped} already-uploaded files; {len(files)} remaining")
+        except Exception as exc:
+            print(f"  WARNING: could not fetch file list, uploading everything: {exc}", file=sys.stderr)
+
+    # ── 5. Upload files ───────────────────────────────────────────────────
     print(f"\nUploading {len(files)} files…")
     upload_url = f"{server}/api/deployments/{dep_id}/upload"
-    failed: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+
+    def _log(msg: str) -> None:
+        if _has_tqdm:
+            from tqdm import tqdm as _tqdm
+            _tqdm.write(msg)
+        else:
+            print(msg)
 
     iterator = tqdm(files, unit="file") if _has_tqdm else files
     for fpath in iterator:
-        try:
-            with open(fpath, "rb") as f:
-                r = requests.post(
-                    upload_url,
-                    files={"file": (fpath.name, f)},
-                    timeout=120,
-                )
-                r.raise_for_status()
-        except Exception as exc:
-            failed.append(fpath)
-            if not _has_tqdm:
-                print(f"  WARN: failed {fpath.name}: {exc}")
+        last_exc: str = ""
+        for attempt in range(1, args.retries + 1):
+            try:
+                with open(fpath, "rb") as f:
+                    r = requests.post(
+                        upload_url,
+                        files={"file": (fpath.name, f)},
+                        timeout=120,
+                    )
+                    r.raise_for_status()
+                last_exc = ""
+                break
+            except Exception as exc:
+                last_exc = str(exc)
+                if hasattr(exc, "response") and exc.response is not None:
+                    last_exc += f" — server said: {exc.response.text[:200]}"
+                if attempt < args.retries:
+                    time.sleep(2 ** attempt)
+        if last_exc:
+            failed.append((fpath, last_exc))
+            _log(f"  FAILED {fpath.name}: {last_exc}")
 
     if failed:
         print(f"\nWARNING: {len(failed)} files failed to upload:")
-        for f in failed[:10]:
+        for f, _ in failed[:10]:
             print(f"  {f.name}")
 
     print(f"\n  {len(files) - len(failed)}/{len(files)} files uploaded successfully")
 
-    # ── 5. Trigger processing ─────────────────────────────────────────────
+    # ── 6. Trigger processing ─────────────────────────────────────────────
     if not args.no_process:
         print("\nQueueing AI processing job…")
         try:
