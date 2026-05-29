@@ -26,6 +26,10 @@ class BirdNetAnalyzer:
         self.sensitivity: float = float(params.get("sensitivity", 1.0))
         self._analyzer = None
 
+    def warm_up(self) -> None:
+        """Eagerly load the model; raises immediately if the install is broken."""
+        self._load()
+
     def _load(self) -> None:
         if self._analyzer is not None:
             return

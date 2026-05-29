@@ -111,10 +111,15 @@ const Timeline = {
     this.events = this._group(data, this.windowSec);
     this._render();
 
+    const noTs = data.filter(i => !i.captured_at).length;
     const summary = document.getElementById('tl-summary');
-    summary.textContent = data.length === 0
-      ? 'No media found'
-      : `${data.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
+    if (data.length === 0) {
+      summary.textContent = 'No media found';
+    } else {
+      let s = `${data.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
+      if (noTs > 0) s += ` · ${noTs} without EXIF timestamp (marked ~)`;
+      summary.textContent = s;
+    }
 
     if (this.events.length > 0) {
       document.getElementById('tl-controls').style.display = 'flex';
@@ -126,8 +131,8 @@ const Timeline = {
     const events = [];
     let cur = null;
     for (const item of items) {
-      if (!item.captured_at) continue;
-      const ts = new Date(item.captured_at).getTime();
+      // sort_ts is COALESCE(captured_at, uploaded_at) — always present
+      const ts = new Date(item.sort_ts || item.captured_at || item.uploaded_at).getTime();
       if (isNaN(ts)) continue;
       if (!cur || ts - cur.endTs > WIN || item.location_name !== cur.location) {
         cur = { ts, endTs: ts, location: item.location_name, items: [item] };
@@ -189,8 +194,12 @@ const Timeline = {
   },
 
   _eventEl(evt, idx) {
-    const photos = evt.items.filter(i => i.mime_type && i.mime_type.startsWith('image/'));
-    const audios = evt.items.filter(i => i.mime_type && i.mime_type.startsWith('audio/'));
+    const _isImage = i => (i.mime_type && i.mime_type.startsWith('image/'))
+                       || /\.(jpg|jpeg|png|tiff?|cr2|nef|arw)$/i.test(i.filename || '');
+    const _isAudio = i => (i.mime_type && i.mime_type.startsWith('audio/'))
+                       || /\.(wav|flac|mp3|ogg)$/i.test(i.filename || '');
+    const photos = evt.items.filter(_isImage);
+    const audios = evt.items.filter(_isAudio);
 
     // Deduplicated species sorted by confidence
     const seen = new Set();
@@ -204,9 +213,12 @@ const Timeline = {
       })
       .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
 
+    // Check if any item in the event has a real captured_at.
+    // If none do, the timestamp is the deployment upload time (fallback).
+    const hasRealTs = evt.items.some(i => i.captured_at);
     const timeStr = new Date(evt.ts).toLocaleTimeString('en-US', {
       hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
+    }) + (hasRealTs ? '' : ' <span title="No EXIF timestamp — showing upload date" style="color:var(--amber);font-size:10px">~</span>');
 
     const dotType = photos.length && audios.length ? 'paired'
                   : audios.length ? 'audio' : 'camera';

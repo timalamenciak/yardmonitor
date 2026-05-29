@@ -332,14 +332,16 @@ class Database:
         location_name: Optional[str] = None,
         limit: int = 500,
     ) -> list[dict]:
-        clauses: list[str] = ["m.captured_at IS NOT NULL"]
+        # Use COALESCE so media without EXIF timestamps still appear, ordered
+        # by their deployment upload time as a fallback.
+        clauses: list[str] = []
         params: list[Any] = []
 
         if from_date:
-            clauses.append("m.captured_at >= ?")
+            clauses.append("COALESCE(m.captured_at, d.uploaded_at) >= ?")
             params.append(from_date)
         if to_date:
-            clauses.append("m.captured_at <= ?")
+            clauses.append("COALESCE(m.captured_at, d.uploaded_at) <= ?")
             params.append(to_date + "T23:59:59")
         if deployment_id:
             clauses.append("m.deployment_id = ?")
@@ -348,17 +350,19 @@ class Database:
             clauses.append("d.location_name = ?")
             params.append(location_name)
 
-        where = "WHERE " + " AND ".join(clauses)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
         with self._conn() as conn:
             media_rows = conn.execute(
                 f"""SELECT m.id, m.deployment_id, m.filename, m.relative_path,
                            m.captured_at, m.mime_type, m.file_size,
-                           d.location_name, d.sensor_type, d.latitude, d.longitude
+                           d.location_name, d.sensor_type, d.latitude, d.longitude,
+                           d.uploaded_at,
+                           COALESCE(m.captured_at, d.uploaded_at) AS sort_ts
                     FROM media m
                     JOIN deployments d ON d.id = m.deployment_id
                     {where}
-                    ORDER BY m.captured_at ASC
+                    ORDER BY sort_ts ASC
                     LIMIT ?""",
                 params + [limit],
             ).fetchall()

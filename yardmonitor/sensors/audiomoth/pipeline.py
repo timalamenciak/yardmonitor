@@ -83,8 +83,11 @@ class AudioMothPipeline(BasePipeline):
         # ── 2. BirdNET ────────────────────────────────────────────────────
         bn_cache_path = dep_dir / "birdnet_results.json"
         if not self.is_step_complete("birdnet"):
+            logger.info("Loading BirdNET-Analyzer model…")
+            self.analyzer.warm_up()
             logger.info("Running BirdNET-Analyzer on %d files…", len(copied))
             results: dict[str, list[dict]] = {}
+            file_errors = 0
             for wav in copied:
                 try:
                     results[wav.name] = self.analyzer.analyze(
@@ -92,8 +95,11 @@ class AudioMothPipeline(BasePipeline):
                         date=parse_audiomoth_datetime(wav.name),
                     )
                 except Exception as exc:
+                    file_errors += 1
                     logger.warning("BirdNET failed for %s: %s", wav.name, exc)
                     results[wav.name] = []
+            if file_errors:
+                logger.warning("BirdNET completed with %d/%d file errors", file_errors, len(copied))
             save_json(results, bn_cache_path)
             self.mark_step_complete("birdnet", state_path, {"files": len(results)})
         else:

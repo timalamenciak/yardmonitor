@@ -226,8 +226,17 @@ class ServerPipelineRunner:
         analyzer = self._get_birdnet()
         bn_model = f"BirdNET-{self.models.version('birdnet')}"
 
+        self._log(job_id, "Loading BirdNET-Analyzer model...")
+        try:
+            analyzer.warm_up()
+        except Exception as exc:
+            self._log(job_id, f"ERROR: BirdNET model failed to load: {exc}")
+            raise RuntimeError(f"BirdNET failed to load: {exc}") from exc
+        self._log(job_id, "BirdNET-Analyzer model loaded")
+
         self._log(job_id, "Running BirdNET-Analyzer...")
         all_results: dict[str, list[dict]] = {}
+        file_errors = 0
         for wav in audio_files:
             try:
                 dets = analyzer.analyze(
@@ -238,8 +247,12 @@ class ServerPipelineRunner:
                 )
                 all_results[wav.name] = dets
             except Exception as exc:
-                logger.warning("BirdNET failed for %s: %s", wav.name, exc)
+                file_errors += 1
+                self._log(job_id, f"WARNING: BirdNET failed for {wav.name}: {exc}")
                 all_results[wav.name] = []
+
+        if file_errors:
+            self._log(job_id, f"BirdNET completed with {file_errors}/{len(audio_files)} file errors")
 
         bn_cache = dep_dir / "birdnet_results.json"
         bn_cache.write_text(json.dumps(all_results, default=str), encoding="utf-8")
