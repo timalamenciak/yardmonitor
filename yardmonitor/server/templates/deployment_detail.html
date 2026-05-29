@@ -136,12 +136,10 @@
     {% endif %}
 
     {% if dep.status in ('uploading', 'complete', 'failed') %}
-    <form method="post" action="/api/deployments/{{ dep.id }}/process"
-          onsubmit="this.querySelector('button').textContent='Queued…'">
-      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:8px;">
-        {% if dep.status == 'failed' %}↺ Reprocess{% else %}▶ Process now{% endif %}
-      </button>
-    </form>
+    <button id="process-btn" class="btn btn-primary btn-sm" style="margin-top:8px;"
+            onclick="processDeployment('{{ dep.id }}', this)">
+      {% if dep.status == 'failed' %}↺ Reprocess{% else %}▶ Process now{% endif %}
+    </button>
     {% endif %}
   </div>
 </div>
@@ -183,4 +181,13 @@
   setTimeout(() => location.reload(), 8000);
 </script>
 {% endif %}
+<script>
+function processDeployment(depId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Queued…';
+  fetch('/api/deployments/' + depId + '/process', { method: 'POST' })
+    .then(() => location.reload())
+    .catch(() => { btn.disabled = false; btn.textContent = '▶ Process now'; });
+}
+</script>
 {% endblock %}

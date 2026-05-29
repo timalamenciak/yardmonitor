@@ -54,7 +54,16 @@
                  onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
             <div class="recent-thumb-placeholder" style="display:none;">📷</div>
           {% else %}
-            <div class="recent-thumb-placeholder">🎵</div>
+            {# Clickable audio thumbnail — plays the detected clip #}
+            <button class="recent-thumb-placeholder audio-play-btn"
+                    data-url="/media/{{ obs.deployment_id }}/{{ obs.filename }}"
+                    data-meta="{{ obs.meta_json or '{}' }}"
+                    data-label="{{ obs.common_name or obs.scientific_name or 'Audio clip' }}"
+                    title="Play clip"
+                    onclick="AudioPlayer.toggle(this)">
+              <span class="ap-icon-play">🎵</span>
+              <span class="ap-icon-pause" style="display:none">⏸</span>
+            </button>
           {% endif %}
           <div class="recent-info">
             <div class="recent-species">
@@ -73,7 +82,9 @@
             </div>
           </div>
           {% if obs.confidence %}
-            <span class="badge badge-blue">{{ "%.0f"|format(obs.confidence * 100) }}%</span>
+            <span class="badge {% if obs.sensor_type == 'audiomoth' %}badge-blue{% else %}badge-green{% endif %}">
+              {{ "%.0f"|format(obs.confidence * 100) }}%
+            </span>
           {% endif %}
         </li>
         {% endfor %}
@@ -134,4 +145,136 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+{# ── Fixed mini audio player ─────────────────────────────────────────── #}
+<div id="audio-mini-player" class="amp-wrap" style="display:none" role="region" aria-label="Audio player">
+  <audio id="amp-audio"></audio>
+  <div class="amp-inner">
+    <button class="amp-btn" id="amp-play-btn" onclick="AudioPlayer.toggleGlobal()" title="Play / Pause">&#9654;</button>
+    <div class="amp-body">
+      <div class="amp-label" id="amp-label">–</div>
+      <div class="amp-row">
+        <span class="amp-time" id="amp-cur">0:00</span>
+        <input type="range" class="amp-seek" id="amp-seek" min="0" max="100" value="0"
+               oninput="AudioPlayer.seek(+this.value)">
+        <span class="amp-time" id="amp-dur">–:––</span>
+      </div>
+    </div>
+    <button class="amp-btn amp-close" onclick="AudioPlayer.close()" title="Close">&#10005;</button>
+  </div>
+</div>
+
+<script>
+const AudioPlayer = {
+  _audio:   null,
+  _current: null,   // the .audio-play-btn that is active
+
+  init() {
+    this._audio = document.getElementById('amp-audio');
+    this._audio.addEventListener('timeupdate',     () => this._tick());
+    this._audio.addEventListener('loadedmetadata', () => this._onMeta());
+    this._audio.addEventListener('ended',          () => this._onEnd());
+    this._audio.addEventListener('pause',          () => this._syncBtn(false));
+    this._audio.addEventListener('play',           () => this._syncBtn(true));
+  },
+
+  /* Called when a thumbnail play button is clicked */
+  toggle(btn) {
+    /* Same clip — play/pause */
+    if (this._current === btn) {
+      this._audio.paused ? this._audio.play() : this._audio.pause();
+      return;
+    }
+
+    /* Different clip — switch */
+    if (this._current) this._resetBtn(this._current);
+    this._current = btn;
+
+    const url  = btn.dataset.url;
+    const meta = this._parseMeta(btn.dataset.meta);
+    const s    = meta.start_time, e = meta.end_time;
+
+    /* HTML media fragment: #t=start,end plays only that detected segment */
+    this._audio.src = (s != null) ? `${url}#t=${s},${e}` : url;
+    this._audio.play();
+
+    document.getElementById('amp-label').textContent =
+      btn.dataset.label || 'Audio clip';
+    document.getElementById('audio-mini-player').style.display = 'block';
+    document.getElementById('amp-seek').value = 0;
+    document.getElementById('amp-cur').textContent  = '0:00';
+    document.getElementById('amp-dur').textContent  = '–:––';
+  },
+
+  /* Play/pause from the mini-player bar */
+  toggleGlobal() {
+    if (!this._audio) return;
+    this._audio.paused ? this._audio.play() : this._audio.pause();
+  },
+
+  /* Scrubber drag */
+  seek(pct) {
+    if (!this._audio || !this._audio.duration) return;
+    this._audio.currentTime = (pct / 100) * this._audio.duration;
+  },
+
+  /* Close */
+  close() {
+    this._audio.pause();
+    this._audio.removeAttribute('src');
+    if (this._current) { this._resetBtn(this._current); this._current = null; }
+    document.getElementById('audio-mini-player').style.display = 'none';
+  },
+
+  /* ── Private ──────────────────────────────────────────────────────── */
+  _tick() {
+    const a = this._audio;
+    if (!a.duration) return;
+    document.getElementById('amp-seek').value = (a.currentTime / a.duration) * 100;
+    document.getElementById('amp-cur').textContent  = this._fmt(a.currentTime);
+  },
+
+  _onMeta() {
+    document.getElementById('amp-dur').textContent = this._fmt(this._audio.duration);
+  },
+
+  _onEnd() {
+    if (this._current) { this._resetBtn(this._current); this._current = null; }
+    document.getElementById('amp-play-btn').innerHTML = '&#9654;';
+    document.getElementById('amp-seek').value = 0;
+    document.getElementById('amp-cur').textContent = '0:00';
+  },
+
+  _syncBtn(playing) {
+    document.getElementById('amp-play-btn').innerHTML =
+      playing ? '&#9646;&#9646;' : '&#9654;';
+    if (!this._current) return;
+    const pi = this._current.querySelector('.ap-icon-play');
+    const pa = this._current.querySelector('.ap-icon-pause');
+    if (pi) pi.style.display = playing ? 'none' : '';
+    if (pa) pa.style.display = playing ? ''     : 'none';
+    this._current.classList.toggle('ap-playing', playing);
+  },
+
+  _resetBtn(btn) {
+    const pi = btn.querySelector('.ap-icon-play');
+    const pa = btn.querySelector('.ap-icon-pause');
+    if (pi) pi.style.display = '';
+    if (pa) pa.style.display = 'none';
+    btn.classList.remove('ap-playing');
+  },
+
+  _parseMeta(raw) { try { return JSON.parse(raw || '{}'); } catch { return {}; } },
+
+  _fmt(secs) {
+    if (!isFinite(secs)) return '–:––';
+    const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => AudioPlayer.init());
+</script>
 {% endblock %}

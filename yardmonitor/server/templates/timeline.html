@@ -4,9 +4,10 @@
 {% block content %}
 <div class="page-header">
   <span class="page-title">Timeline</span>
-  <span class="page-sub" id="tl-summary">Loading…</span>
+  <span class="page-sub" id="htl-summary">Loading…</span>
 </div>
 
+<!-- Filters -->
 <form class="filter-bar" method="get" action="/timeline">
   <div class="filter-group">
     <label class="filter-label">From</label>
@@ -36,7 +37,7 @@
   </div>
   <div class="filter-group">
     <label class="filter-label">Group window</label>
-    <select class="filter-select" id="tl-window-select" onchange="Timeline.setWindow(this.value)">
+    <select class="filter-select" id="htl-window-sel" onchange="TL.setWindow(+this.value)">
       <option value="60">1 min</option>
       <option value="300" selected>5 min</option>
       <option value="1800">30 min</option>
@@ -48,29 +49,39 @@
   </div>
 </form>
 
-<div class="timeline-controls" id="tl-controls" style="display:none">
-  <button class="btn btn-primary btn-sm" id="tl-play-btn" onclick="Timeline.togglePlay()">&#9654; Play</button>
-  <button class="btn btn-ghost btn-sm" onclick="Timeline.reset()">&#8617; Reset</button>
-  <input type="range" class="tl-progress" id="tl-progress" min="0" max="100" value="0"
-         oninput="Timeline.seekTo(+this.value)" onchange="Timeline.seekTo(+this.value)">
-  <span class="tl-counter" id="tl-counter">–</span>
-  <select class="filter-select" style="min-width:72px;padding:5px 8px;font-size:12px"
-          onchange="Timeline.setSpeed(+this.value)" title="Playback speed">
+<!-- Playback controls (hidden until data loads) -->
+<div class="htl-controls" id="htl-controls" style="display:none">
+  <button class="btn btn-primary btn-sm" id="htl-play-btn" onclick="TL.togglePlay()">&#9654; Play</button>
+  <button class="btn btn-ghost btn-sm" onclick="TL.reset()">&#8617; Reset</button>
+  <input type="range" class="htl-progress" id="htl-progress" min="0" max="100" value="0"
+         oninput="TL.seekTo(+this.value)" onchange="TL.seekTo(+this.value)">
+  <span class="htl-counter" id="htl-counter">–</span>
+  <select class="filter-select" style="min-width:68px;padding:5px 8px;font-size:12px"
+          onchange="TL.setSpeed(+this.value)" title="Playback speed">
     <option value="0.5">0.5×</option>
     <option value="1" selected>1×</option>
     <option value="2">2×</option>
     <option value="4">4×</option>
     <option value="8">8×</option>
   </select>
-  <span class="tl-current-time" id="tl-current-time"></span>
+  <div class="htl-zoom-group">
+    <button class="btn btn-ghost btn-sm" onclick="TL.zoom(-1)" title="Zoom out">−</button>
+    <span class="htl-zoom-label" id="htl-zoom-label">1×</span>
+    <button class="btn btn-ghost btn-sm" onclick="TL.zoom(+1)" title="Zoom in">+</button>
+  </div>
+  <span class="htl-current-time" id="htl-current-time"></span>
 </div>
 
-<div id="timeline-events">
-  <div class="tl-loading">
-    <div class="tl-spinner"></div>
-    Loading timeline…
+<!-- Track viewport -->
+<div class="htl-viewport" id="htl-viewport">
+  <div class="htl-loading" id="htl-loading">
+    <div class="htl-spinner"></div> Loading timeline…
   </div>
+  <div class="htl-track" id="htl-track" style="display:none"></div>
 </div>
+
+<!-- Per-event detail bar -->
+<div class="htl-info-bar" id="htl-info-bar" style="display:none"></div>
 {% endblock %}
 
 {% block scripts %}
@@ -82,15 +93,35 @@ const TL_FILTERS = {
   location_name: "{{ filters.location_name }}",
 };
 
-const Timeline = {
-  raw:        [],
-  events:     [],
-  currentIdx: -1,
-  playing:    false,
-  speed:      1,
-  windowSec:  300,
-  timer:      null,
+/* ─── Layout constants ───────────────────────────────────────────────────── */
+const THUMB_W  = 100;   // thumbnail width  (px)
+const THUMB_H  = 75;    // thumbnail height (px)
+const AUDIO_W  = 44;    // audio icon width
+const AUDIO_H  = 36;    // audio icon height
+const STEM     = 26;    // px from axis to content
+const DOT_D    = 14;    // dot diameter
+const DOT_R    = DOT_D / 2;
+const AXIS_Y   = THUMB_H + STEM + DOT_R;  // 108 — y of axis center-line
+const LABEL_Y  = AXIS_Y + DOT_R + STEM + AUDIO_H + 10; // 187
+const TRACK_H  = LABEL_Y + 26;            // 213
+const PAD      = 90;    // left/right track padding (px)
+const PX_PER_HR = 40;   // default pixel-density (zoom=1)
 
+/* ─── Main object ────────────────────────────────────────────────────────── */
+const TL = {
+  raw:       [],
+  events:    [],
+  minTs:     0,
+  maxTs:     0,
+  zoomLevel: 1,
+  speed:     1,
+  windowSec: 300,
+  playing:   false,
+  currentIdx: -1,
+  playheadX:  PAD,
+  animFrame:  null,
+
+  /* ── Bootstrap ──────────────────────────────────────────────────────── */
   async init() {
     const p = new URLSearchParams();
     if (TL_FILTERS.from_date)     p.set('from_date',     TL_FILTERS.from_date);
@@ -100,38 +131,33 @@ const Timeline = {
 
     let data;
     try {
-      const resp = await fetch('/api/timeline?' + p);
-      data = await resp.json();
-    } catch (e) {
+      const r = await fetch('/api/timeline?' + p);
+      data = await r.json();
+    } catch(e) {
       this._showError(e.message);
       return;
     }
 
     this.raw    = data;
     this.events = this._group(data, this.windowSec);
-    this._render();
-
-    const noTs = data.filter(i => !i.captured_at).length;
-    const summary = document.getElementById('tl-summary');
-    if (data.length === 0) {
-      summary.textContent = 'No media found';
-    } else {
-      let s = `${data.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
-      if (noTs > 0) s += ` · ${noTs} without EXIF timestamp (marked ~)`;
-      summary.textContent = s;
+    if (this.events.length) {
+      this.minTs = this.events[0].ts;
+      this.maxTs = this.events[this.events.length - 1].ts;
     }
 
-    if (this.events.length > 0) {
-      document.getElementById('tl-controls').style.display = 'flex';
+    this._render();
+    this._updateSummary();
+    if (this.events.length) {
+      document.getElementById('htl-controls').style.display = 'flex';
     }
   },
 
+  /* ── Grouping ───────────────────────────────────────────────────────── */
   _group(items, windowSec) {
     const WIN = windowSec * 1000;
     const events = [];
     let cur = null;
     for (const item of items) {
-      // sort_ts is COALESCE(captured_at, uploaded_at) — always present
       const ts = new Date(item.sort_ts || item.captured_at || item.uploaded_at).getTime();
       if (isNaN(ts)) continue;
       if (!cur || ts - cur.endTs > WIN || item.location_name !== cur.location) {
@@ -145,242 +171,403 @@ const Timeline = {
     return events;
   },
 
-  _render() {
-    const wrap = document.getElementById('timeline-events');
-    wrap.innerHTML = '';
+  /* ── Geometry ───────────────────────────────────────────────────────── */
+  _trackW() {
+    const vw  = Math.max(500, document.getElementById('htl-viewport').clientWidth || 800);
+    const totalMs = Math.max(1, this.maxTs - this.minTs);
+    const contentW = (totalMs / 3_600_000) * PX_PER_HR * this.zoomLevel;
+    // At least fill the viewport; cap at 12× viewport
+    return Math.max(vw, Math.min(contentW + 2 * PAD, vw * 12));
+  },
 
-    if (this.events.length === 0) {
-      wrap.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">📷</div>
-        <div class="empty-title">No media with timestamps found</div>
-        <div class="empty-text">Upload and process a deployment, then come back here.</div>
+  _getX(ts) {
+    const tw = this._trackW();
+    const total = this.maxTs - this.minTs;
+    if (!total) return tw / 2;
+    return PAD + ((ts - this.minTs) / total) * (tw - 2 * PAD);
+  },
+
+  /* ── Render ─────────────────────────────────────────────────────────── */
+  _render() {
+    const loading = document.getElementById('htl-loading');
+    const track   = document.getElementById('htl-track');
+    loading.style.display = 'none';
+
+    if (!this.events.length) {
+      loading.style.display = 'flex';
+      loading.innerHTML = `<div style="text-align:center">
+        <div style="font-size:40px;opacity:.3;margin-bottom:12px">📷</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text)">No media found</div>
+        <div style="font-size:13px;margin-top:6px">Upload and process a deployment first.</div>
       </div>`;
       return;
     }
 
-    const frag = document.createDocumentFragment();
-    let lastDay = null;
+    track.innerHTML = '';
+    track.style.display = 'block';
 
-    this.events.forEach((evt, i) => {
-      const d   = new Date(evt.ts);
-      const day = d.toISOString().slice(0, 10);
-      if (day !== lastDay) {
-        frag.appendChild(this._dayEl(d));
-        lastDay = day;
-      }
-      frag.appendChild(this._eventEl(evt, i));
-    });
+    const tw = this._trackW();
+    track.style.width  = tw + 'px';
+    track.style.height = TRACK_H + 'px';
 
-    wrap.appendChild(frag);
+    /* Axis line */
+    const axis = document.createElement('div');
+    axis.className = 'htl-axis-line';
+    axis.style.top = (AXIS_Y - 1) + 'px';
+    track.appendChild(axis);
 
-    // Stagger fade-in (cap at 2 s total)
-    wrap.querySelectorAll('.timeline-event').forEach((el, i) => {
-      setTimeout(() => el.classList.add('visible'), Math.min(i * 55, 1800));
+    /* Playhead */
+    const ph = document.createElement('div');
+    ph.className   = 'htl-playhead';
+    ph.id          = 'htl-ph';
+    ph.style.left  = this.playheadX + 'px';
+    ph.style.height = TRACK_H + 'px';
+    track.appendChild(ph);
+
+    /* Date labels */
+    this._renderLabels(track, tw);
+
+    /* Events */
+    this.events.forEach((evt, i) => this._renderEvent(track, evt, i));
+
+    /* Delegation — single listener on track */
+    track.addEventListener('click', e => {
+      const el = e.target.closest('[data-idx]');
+      if (el) this._select(+el.dataset.idx);
     });
 
     this._updateCounter();
+    this._updateZoomLabel();
   },
 
-  _dayEl(d) {
-    const label = d.toLocaleDateString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
-    const el = document.createElement('div');
-    el.className = 'timeline-day';
-    el.innerHTML = `<div class="tl-day-line"></div>
-      <div class="timeline-day-label">${label}</div>
-      <div class="tl-day-line"></div>`;
-    return el;
+  _renderLabels(track, tw) {
+    const totalMs = Math.max(1, this.maxTs - this.minTs);
+    const contentW = tw - 2 * PAD;
+    const pxPerMs  = contentW / totalMs;
+    // Aim for a label every ~130 px
+    const targetMs = 130 / pxPerMs;
+    const STEPS = [
+      3_600_000, 7_200_000, 14_400_000, 21_600_000,
+      43_200_000, 86_400_000, 172_800_000, 604_800_000,
+    ];
+    const interval = STEPS.find(s => s >= targetMs * 0.6) || STEPS[STEPS.length - 1];
+
+    const start = Math.ceil(this.minTs / interval) * interval;
+    for (let ts = start; ts <= this.maxTs + interval * 0.5; ts += interval) {
+      const x = this._getX(ts);
+      if (x < 10 || x > tw - 10) continue;
+      const el  = document.createElement('div');
+      el.className  = 'htl-label';
+      el.style.left = x + 'px';
+      el.style.top  = LABEL_Y + 'px';
+
+      const d = new Date(ts);
+      if (interval >= 86_400_000) {
+        el.textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } else {
+        el.textContent = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          + ' ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+      track.appendChild(el);
+    }
   },
 
-  _eventEl(evt, idx) {
-    const _isImage = i => (i.mime_type && i.mime_type.startsWith('image/'))
-                       || /\.(jpg|jpeg|png|tiff?|cr2|nef|arw)$/i.test(i.filename || '');
-    const _isAudio = i => (i.mime_type && i.mime_type.startsWith('audio/'))
-                       || /\.(wav|flac|mp3|ogg)$/i.test(i.filename || '');
-    const photos = evt.items.filter(_isImage);
-    const audios = evt.items.filter(_isAudio);
-
-    // Deduplicated species sorted by confidence
-    const seen = new Set();
-    const species = evt.items
-      .flatMap(i => i.observations || [])
-      .filter(o => {
-        const key = o.scientific_name || o.common_name || o.detection_type;
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-
-    // Check if any item in the event has a real captured_at.
-    // If none do, the timestamp is the deployment upload time (fallback).
-    const hasRealTs = evt.items.some(i => i.captured_at);
-    const timeStr = new Date(evt.ts).toLocaleTimeString('en-US', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }) + (hasRealTs ? '' : ' <span title="No EXIF timestamp — showing upload date" style="color:var(--amber);font-size:10px">~</span>');
+  _renderEvent(track, evt, idx) {
+    const x      = this._getX(evt.ts);
+    const photos = evt.items.filter(i => this._isImg(i));
+    const audios = evt.items.filter(i => this._isAudio(i));
 
     const dotType = photos.length && audios.length ? 'paired'
                   : audios.length ? 'audio' : 'camera';
 
-    // Photos grid (max 6)
-    const photosHtml = photos.length ? `<div class="timeline-photos">${
-      photos.slice(0, 6).map(p =>
-        `<div class="timeline-photo-wrap"
-              onclick="window.open('/media/${p.deployment_id}/${encodeURIComponent(p.filename)}','_blank')"
-              title="${this._esc(p.filename)}">
-           <img src="/thumb/${p.deployment_id}/${encodeURIComponent(p.filename)}"
-                loading="lazy" alt="${this._esc(p.filename)}">
-         </div>`
-      ).join('')
-    }</div>` : '';
+    /* Dot */
+    const dot = document.createElement('div');
+    dot.className   = 'htl-dot ' + dotType;
+    dot.style.cssText = `left:${x - DOT_R}px;top:${AXIS_Y - DOT_R}px;width:${DOT_D}px;height:${DOT_D}px`;
+    dot.dataset.idx = idx;
+    track.appendChild(dot);
 
-    // Audio rows (max 3)
-    const audioHtml = audios.length ? `<div class="timeline-audio-row">
-      <span style="font-size:16px;flex-shrink:0;margin-top:2px">&#127925;</span>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
-          ${audios.length} recording${audios.length !== 1 ? 's' : ''}
-        </div>
-        ${audios.slice(0, 3).map(a =>
-          `<audio controls preload="none" src="/media/${a.deployment_id}/${encodeURIComponent(a.filename)}"
-                  style="width:100%;height:28px;margin-top:2px"></audio>`
-        ).join('')}
-      </div>
-    </div>` : '';
+    /* Thumbnail above axis */
+    if (photos.length) {
+      const thumb = document.createElement('div');
+      thumb.className = 'htl-thumb';
+      thumb.style.cssText = `left:${x - THUMB_W/2}px;top:${AXIS_Y - STEM - THUMB_H - DOT_R}px;width:${THUMB_W}px;height:${THUMB_H}px`;
+      thumb.dataset.idx = idx;
 
-    // Species / detection tags
-    const tagsHtml = species.length ? `<div class="timeline-tags">${
-      species.slice(0, 12).map(o => {
-        const name = o.common_name || o.scientific_name || o.detection_type;
-        const pct  = o.confidence != null ? Math.round(o.confidence * 100) : null;
-        const cls  = o.sensor_type === 'audiomoth'    ? 'badge-blue'
-                   : o.detection_type === 'person'    ? 'badge-amber'
-                   : o.detection_type === 'vehicle'   ? 'badge-purple'
-                   : o.detection_type === 'blank'     ? 'badge-muted'
-                   : 'badge-green';
-        const italic = (o.detection_type === 'animal' && o.scientific_name)
-                       ? 'font-style:italic' : '';
-        return `<span class="badge ${cls}" style="${italic}"
-                      title="${this._esc(o.scientific_name || '')}">${this._esc(name)}${
-                  pct != null ? ` <span style="opacity:.65">${pct}%</span>` : ''
-                }</span>`;
-      }).join('')
-    }</div>` : '';
+      const p = photos[0];
+      const img = document.createElement('img');
+      img.src     = `/thumb/${p.deployment_id}/${encodeURIComponent(p.filename)}`;
+      img.loading = 'lazy';
+      img.alt     = p.filename;
+      thumb.appendChild(img);
 
-    const locBadge = evt.location
-      ? `<span class="badge badge-muted" style="font-size:10px">${this._esc(evt.location)}</span>`
-      : '';
+      if (photos.length > 1) {
+        const b = document.createElement('div');
+        b.className   = 'htl-badge';
+        b.textContent = photos.length;
+        thumb.appendChild(b);
+      }
+      track.appendChild(thumb);
 
-    const countBadges = [
-      photos.length ? `<span class="badge badge-green" style="font-size:10px">&#128247; ${photos.length}</span>` : '',
-      audios.length ? `<span class="badge badge-blue"  style="font-size:10px">&#127925; ${audios.length}</span>` : '',
-    ].join('');
+      /* Stem above */
+      const stem = document.createElement('div');
+      stem.className = 'htl-stem';
+      stem.style.cssText = `left:${x}px;top:${AXIS_Y - STEM - DOT_R}px;height:${STEM}px`;
+      track.appendChild(stem);
+    }
 
-    const card = `<div class="timeline-card">
-      <div class="timeline-card-header">
-        <span class="timeline-time">${timeStr}</span>
-        ${locBadge}${countBadges}
-      </div>
-      ${photosHtml}${audioHtml}${tagsHtml}
-    </div>`;
+    /* Audio icon below axis */
+    if (audios.length) {
+      const icon = document.createElement('div');
+      icon.className = 'htl-audio';
+      icon.style.cssText = `left:${x - AUDIO_W/2}px;top:${AXIS_Y + DOT_R + STEM}px;width:${AUDIO_W}px;height:${AUDIO_H}px`;
+      icon.dataset.idx = idx;
+      icon.innerHTML = '&#127925;';
+      if (audios.length > 1) {
+        const b = document.createElement('div');
+        b.className   = 'htl-badge';
+        b.textContent = audios.length;
+        icon.appendChild(b);
+      }
+      track.appendChild(icon);
 
-    const el = document.createElement('div');
-    el.className = 'timeline-event';
-    el.dataset.idx = idx;
-    el.dataset.ts  = evt.ts;
-    el.innerHTML   = `
-      <div class="tl-gutter">
-        <div class="timeline-dot ${dotType}"></div>
-        <div class="tl-line"></div>
-      </div>
-      <div class="tl-body">${card}</div>`;
-    return el;
+      /* Stem below */
+      const stem = document.createElement('div');
+      stem.className = 'htl-stem';
+      stem.style.cssText = `left:${x}px;top:${AXIS_Y + DOT_R}px;height:${STEM}px`;
+      track.appendChild(stem);
+    }
   },
 
-  // ── Playback ───────────────────────────────────────────────────────────────
-
-  togglePlay() {
-    this.playing ? this.pause() : this.play();
-  },
+  /* ── Playback ───────────────────────────────────────────────────────── */
+  togglePlay() { this.playing ? this.pause() : this.play(); },
 
   play() {
     if (!this.events.length) return;
-    if (this.currentIdx >= this.events.length - 1) this._clearHighlights(), this.currentIdx = -1;
+    if (this.currentIdx >= this.events.length - 1) {
+      this._clearSelected();
+      this.currentIdx = -1;
+      this.playheadX  = PAD;
+      this._movePH(PAD);
+    }
     this.playing = true;
-    document.getElementById('tl-play-btn').innerHTML = '&#9646;&#9646; Pause';
-    this._tick();
+    document.getElementById('htl-play-btn').innerHTML = '&#9646;&#9646; Pause';
+    this._advance();
   },
 
   pause() {
     this.playing = false;
-    clearTimeout(this.timer);
-    document.getElementById('tl-play-btn').innerHTML = '&#9654; Play';
-    // Stop dot pulse on highlighted event
-    document.querySelectorAll('.timeline-dot.playing')
-            .forEach(d => d.classList.remove('playing'));
+    if (this.animFrame) { cancelAnimationFrame(this.animFrame); this.animFrame = null; }
+    document.getElementById('htl-play-btn').innerHTML = '&#9654; Play';
   },
 
   reset() {
     this.pause();
     this.currentIdx = -1;
-    this._clearHighlights();
-    document.getElementById('tl-progress').value = 0;
-    document.getElementById('tl-current-time').textContent = '';
+    this.playheadX  = PAD;
+    this._movePH(PAD);
+    this._clearSelected();
+    document.getElementById('htl-progress').value = 0;
+    document.getElementById('htl-current-time').textContent = '';
+    document.getElementById('htl-info-bar').style.display = 'none';
     this._updateCounter();
   },
 
-  _tick() {
-    this.currentIdx++;
-    if (this.currentIdx >= this.events.length) {
-      this.pause();
-      this.currentIdx = this.events.length - 1;
-      return;
-    }
-    this._highlightCurrent();
-    this.timer = setTimeout(() => { if (this.playing) this._tick(); }, Math.max(150, 1000 / this.speed));
+  _advance() {
+    const next = this.currentIdx + 1;
+    if (next >= this.events.length) { this.pause(); return; }
+    const targetX = this._getX(this.events[next].ts);
+    this._animTo(targetX, () => {
+      this.currentIdx = next;
+      this._select(next, /*scroll=*/false);
+      // Pause between events — shorter pause at higher speed
+      const pause = Math.max(120, 600 / this.speed);
+      if (this.playing) this.animFrame = setTimeout(() => this._advance(), pause);
+    });
   },
 
-  _highlightCurrent() {
-    this._clearHighlights();
-    const els = document.querySelectorAll('.timeline-event[data-idx]');
-    const el  = els[this.currentIdx];
-    if (el) {
-      el.classList.add('highlighted');
-      el.querySelector('.timeline-dot')?.classList.add('playing');
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+  /* Smooth eased animation of playhead from current position to targetX */
+  _animTo(targetX, done) {
+    if (this.animFrame) { cancelAnimationFrame(this.animFrame); clearTimeout(this.animFrame); }
+    const startX = this.playheadX;
+    const dist   = targetX - startX;
+    // Duration: scaled by distance, capped, and divided by speed
+    const dur = Math.min(900, Math.max(250, Math.abs(dist) * 0.6)) / this.speed;
+    const t0 = performance.now();
+
+    const step = now => {
+      const t = Math.min(1, (now - t0) / dur);
+      // Cubic ease-in-out
+      const e = t < 0.5 ? 4*t*t*t : (t-1)*(2*t-2)*(2*t-2)+1;
+      this.playheadX = startX + dist * e;
+      this._movePH(this.playheadX);
+      this._scrollToX(this.playheadX);
+      this._updateProgress();
+      if (t < 1) {
+        this.animFrame = requestAnimationFrame(step);
+      } else {
+        this.playheadX = targetX;
+        this._movePH(targetX);
+        done?.();
+      }
+    };
+    this.animFrame = requestAnimationFrame(step);
+  },
+
+  /* ── Selection ──────────────────────────────────────────────────────── */
+  _select(idx, scroll = true) {
+    this._clearSelected();
+    this.currentIdx = idx;
+    const evt = this.events[idx];
+    if (!evt) return;
+
+    const x = this._getX(evt.ts);
+    this.playheadX = x;
+    this._movePH(x);
+    if (scroll) this._scrollToX(x);
+
+    /* Highlight dot + thumb + audio */
+    document.querySelectorAll(`[data-idx="${idx}"]`).forEach(el => el.classList.add('selected'));
+
     this._updateCounter();
     this._updateProgress();
-    this._updateCurrentTime();
+    this._updateTime(evt);
+    this._updateInfoBar(evt);
   },
 
+  _clearSelected() {
+    document.querySelectorAll('.htl-dot.selected, .htl-thumb.selected, .htl-audio.selected')
+            .forEach(el => el.classList.remove('selected'));
+  },
+
+  /* ── Info bar ───────────────────────────────────────────────────────── */
+  _updateInfoBar(evt) {
+    const bar    = document.getElementById('htl-info-bar');
+    const photos = evt.items.filter(i => this._isImg(i));
+    const audios = evt.items.filter(i => this._isAudio(i));
+    const species = this._species(evt).slice(0, 8);
+    const hasRealTs = evt.items.some(i => i.captured_at);
+
+    const timeStr = new Date(evt.ts).toLocaleString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }) + (hasRealTs ? '' : ' ~');
+
+    const thumbHtml = photos.length
+      ? `<img class="htl-info-thumb" src="/thumb/${photos[0].deployment_id}/${encodeURIComponent(photos[0].filename)}" alt="">`
+      : `<div class="htl-info-ph">&#127925;</div>`;
+
+    const tagHtml = species.length
+      ? species.map(o => {
+          const name = o.common_name || o.scientific_name || o.detection_type;
+          const pct  = o.confidence != null ? Math.round(o.confidence * 100) : null;
+          const cls  = o.sensor_type === 'audiomoth'  ? 'badge-blue'
+                     : o.detection_type === 'person'  ? 'badge-amber'
+                     : o.detection_type === 'vehicle' ? 'badge-purple'
+                     : o.detection_type === 'blank'   ? 'badge-muted'
+                     : 'badge-green';
+          const ital = o.detection_type === 'animal' && o.scientific_name ? 'font-style:italic' : '';
+          return `<span class="badge ${cls}" style="${ital}">${this._esc(name)}${pct != null ? ` <span style="opacity:.65">${pct}%</span>` : ''}</span>`;
+        }).join('')
+      : `<span style="font-size:12px;color:var(--text-muted)">No AI detections</span>`;
+
+    const viewLink = photos.length
+      ? `<a href="/media/${photos[0].deployment_id}/${encodeURIComponent(photos[0].filename)}"
+            target="_blank" class="btn btn-ghost btn-sm" style="flex-shrink:0;margin-left:auto">View &#8599;</a>`
+      : '';
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+      ${thumbHtml}
+      <div class="htl-info-meta">
+        <div class="htl-info-time">${timeStr}</div>
+        ${evt.location ? `<div class="htl-info-loc">&#128205; ${this._esc(evt.location)}</div>` : ''}
+        <div style="display:flex;gap:5px;margin-top:4px">
+          ${photos.length ? `<span class="badge badge-green">&#128247; ${photos.length}</span>` : ''}
+          ${audios.length ? `<span class="badge badge-blue">&#127925; ${audios.length}</span>` : ''}
+        </div>
+      </div>
+      <div class="htl-info-tags">${tagHtml}</div>
+      ${viewLink}`;
+
+    /* If there's audio, append players inside bar */
+    if (audios.length) {
+      const audioWrap = document.createElement('div');
+      audioWrap.style.cssText = 'flex:0 0 100%;display:flex;flex-direction:column;gap:4px;padding-top:4px';
+      audios.slice(0, 2).forEach(a => {
+        const au = document.createElement('audio');
+        au.controls = true;
+        au.preload  = 'none';
+        au.src      = `/media/${a.deployment_id}/${encodeURIComponent(a.filename)}`;
+        au.style.cssText = 'width:100%;height:28px';
+        audioWrap.appendChild(au);
+      });
+      bar.appendChild(audioWrap);
+    }
+  },
+
+  /* ── Zoom ───────────────────────────────────────────────────────────── */
+  zoom(dir) {
+    const vp  = document.getElementById('htl-viewport');
+    const oldW = this._trackW();
+    const cx  = vp.scrollLeft + vp.clientWidth / 2; // center point to preserve
+
+    const STEP = 1.6;
+    if (dir > 0) this.zoomLevel = Math.min(this.zoomLevel * STEP, 30);
+    else         this.zoomLevel = Math.max(this.zoomLevel / STEP, 0.05);
+
+    this._rebuild();
+
+    const newW = this._trackW();
+    vp.scrollLeft = Math.max(0, (cx / oldW) * newW - vp.clientWidth / 2);
+    this._updateZoomLabel();
+  },
+
+  /* ── Controls ───────────────────────────────────────────────────────── */
   seekTo(pct) {
+    if (!this.events.length) return;
     const idx = Math.round((pct / 100) * (this.events.length - 1));
-    this.currentIdx = Math.max(0, Math.min(idx, this.events.length - 1));
-    this._highlightCurrent();
+    this._select(Math.max(0, Math.min(idx, this.events.length - 1)));
   },
 
-  setSpeed(v)  { this.speed     = +v; },
+  setSpeed(v)  { this.speed = +v; },
+
   setWindow(v) {
     this.windowSec = +v;
     this.events    = this._group(this.raw, this.windowSec);
+    this.minTs     = this.events.length ? this.events[0].ts : 0;
+    this.maxTs     = this.events.length ? this.events[this.events.length - 1].ts : 0;
     this.reset();
     this._render();
-    const s = document.getElementById('tl-summary');
-    if (s) s.textContent = `${this.raw.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
-    if (this.events.length > 0) document.getElementById('tl-controls').style.display = 'flex';
+    this._updateSummary();
+    if (this.events.length) document.getElementById('htl-controls').style.display = 'flex';
   },
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  /* ── DOM helpers ────────────────────────────────────────────────────── */
+  _rebuild() {
+    const selIdx = this.currentIdx;
+    this._render();
+    if (selIdx >= 0) {
+      this._select(selIdx, false);
+      this._movePH(this._getX(this.events[selIdx].ts));
+    }
+  },
 
-  _clearHighlights() {
-    document.querySelectorAll('.timeline-event.highlighted').forEach(el => el.classList.remove('highlighted'));
-    document.querySelectorAll('.timeline-dot.playing').forEach(d => d.classList.remove('playing'));
+  _movePH(x) {
+    const el = document.getElementById('htl-ph');
+    if (el) el.style.left = x + 'px';
+  },
+
+  _scrollToX(x) {
+    const vp = document.getElementById('htl-viewport');
+    const l  = vp.scrollLeft, r = l + vp.clientWidth;
+    const margin = 150;
+    if (x > r - margin) vp.scrollLeft = x - vp.clientWidth * 0.5;
+    else if (x < l + margin) vp.scrollLeft = x - vp.clientWidth * 0.5;
   },
 
   _updateCounter() {
-    const el = document.getElementById('tl-counter');
+    const el = document.getElementById('htl-counter');
     if (!el) return;
     el.textContent = this.events.length
       ? `${Math.max(0, this.currentIdx + 1)} / ${this.events.length}`
@@ -388,36 +575,85 @@ const Timeline = {
   },
 
   _updateProgress() {
-    const el = document.getElementById('tl-progress');
+    const el = document.getElementById('htl-progress');
     if (el && this.events.length > 1)
       el.value = (this.currentIdx / (this.events.length - 1)) * 100;
   },
 
-  _updateCurrentTime() {
-    const el = document.getElementById('tl-current-time');
-    if (!el || this.currentIdx < 0) return;
-    const evt = this.events[this.currentIdx];
-    if (!evt) return;
+  _updateTime(evt) {
+    const el = document.getElementById('htl-current-time');
+    if (!el) return;
     el.textContent = new Date(evt.ts).toLocaleString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
+      hour: '2-digit', minute: '2-digit',
     });
   },
 
+  _updateSummary() {
+    const noTs = this.raw.filter(i => !i.captured_at).length;
+    let s = this.raw.length === 0
+      ? 'No media found'
+      : `${this.raw.length} media · ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`;
+    if (noTs) s += ` · ${noTs} without EXIF (~)`;
+    document.getElementById('htl-summary').textContent = s;
+  },
+
+  _updateZoomLabel() {
+    const el = document.getElementById('htl-zoom-label');
+    if (el) el.textContent = this.zoomLevel >= 1
+      ? this.zoomLevel.toFixed(1).replace(/\.0$/, '') + '×'
+      : (1 / this.zoomLevel).toFixed(1).replace(/\.0$/, '') + '× out';
+  },
+
   _showError(msg) {
-    document.getElementById('timeline-events').innerHTML = `<div class="empty-state">
-      <div class="empty-icon">&#9888;</div>
-      <div class="empty-title">Failed to load timeline</div>
-      <div class="empty-text">${this._esc(msg)}</div>
+    const loading = document.getElementById('htl-loading');
+    loading.style.display = 'flex';
+    loading.innerHTML = `<div style="text-align:center">
+      <div style="font-size:36px;opacity:.4;margin-bottom:10px">&#9888;</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text)">Failed to load timeline</div>
+      <div style="font-size:12px;margin-top:6px">${this._esc(msg)}</div>
     </div>`;
-    document.getElementById('tl-summary').textContent = 'Error';
+  },
+
+  /* ── Utilities ──────────────────────────────────────────────────────── */
+  _isImg(i)  { return (i.mime_type && i.mime_type.startsWith('image/')) || /\.(jpe?g|png|tiff?|cr2|nef|arw)$/i.test(i.filename || ''); },
+  _isAudio(i){ return (i.mime_type && i.mime_type.startsWith('audio/')) || /\.(wav|flac|mp3|ogg)$/i.test(i.filename || ''); },
+
+  _species(evt) {
+    const seen = new Set();
+    return evt.items
+      .flatMap(i => i.observations || [])
+      .filter(o => {
+        const k = o.scientific_name || o.common_name || o.detection_type;
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
   },
 
   _esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   },
 };
 
-document.addEventListener('DOMContentLoaded', () => Timeline.init());
+/* ─── Drag-to-scroll ─────────────────────────────────────────────────────── */
+(function() {
+  const vp = document.getElementById('htl-viewport');
+  let dragging = false, startX = 0, scrollStart = 0;
+  vp.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    dragging = true; startX = e.clientX; scrollStart = vp.scrollLeft;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    vp.scrollLeft = scrollStart - (e.clientX - startX);
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+})();
+
+document.addEventListener('DOMContentLoaded', () => TL.init());
 </script>
 {% endblock %}
